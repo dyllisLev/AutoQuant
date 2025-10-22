@@ -1,0 +1,79 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 환경 변수
+.env
+
+# 데이터베이스
+*.db
+*.sqlite
+*.sqlite3
+
+# 로그
+logs/
+*.log
+
+# 데이터
+data/
+*.csv
+*.parquet
+*.h5
+*.hdf5
+
+# 모델
+models/
+*.pkl
+*.joblib
+*.h5
+*.pb
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 테스트
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# 기타
+*.bak
+*.tmp
+temp/
