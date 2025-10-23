@@ -267,6 +267,7 @@ AutoQuant/
 
 ## 📚 문서
 
+- **USER_TEST_CHECKLIST.md**: 사용자 테스트 체크리스트 (전체 기능 테스트) ⭐⭐ NEW
 - **DATABASE_SETUP.md**: PostgreSQL 설정 및 KIS 데이터 조회 가이드 ⭐ NEW
 - **INTEGRATION_SUMMARY.md**: PostgreSQL 통합 완료 보고서 ⭐ NEW
 - **USER_GUIDE.md**: 상세 사용 가이드
