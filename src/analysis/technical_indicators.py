@@ -124,10 +124,15 @@ class TechnicalIndicators:
         Returns:
             (%K, %D) 튜플
         """
-        low_min = df['Low'].rolling(window=period).min()
-        high_max = df['High'].rolling(window=period).max()
+        # Decimal 타입을 float로 변환 (PostgreSQL 호환)
+        low = df['Low'].astype(float)
+        high = df['High'].astype(float)
+        close = df['Close'].astype(float)
 
-        k = 100 * ((df['Close'] - low_min) / (high_max - low_min))
+        low_min = low.rolling(window=period).min()
+        high_max = high.rolling(window=period).max()
+
+        k = 100 * ((close - low_min) / (high_max - low_min))
         k = k.rolling(window=smooth_k).mean()
         d = k.rolling(window=smooth_d).mean()
 
@@ -145,9 +150,14 @@ class TechnicalIndicators:
         Returns:
             ATR 시리즈
         """
-        high_low = df['High'] - df['Low']
-        high_close = np.abs(df['High'] - df['Close'].shift())
-        low_close = np.abs(df['Low'] - df['Close'].shift())
+        # Decimal 타입을 float로 변환 (PostgreSQL 호환)
+        high = df['High'].astype(float)
+        low = df['Low'].astype(float)
+        close = df['Close'].astype(float)
+
+        high_low = high - low
+        high_close = np.abs(high - close.shift())
+        low_close = np.abs(low - close.shift())
 
         tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
         atr = tr.rolling(window=period).mean()
@@ -165,7 +175,11 @@ class TechnicalIndicators:
         Returns:
             OBV 시리즈
         """
-        obv = (np.sign(df['Close'].diff()) * df['Volume']).fillna(0).cumsum()
+        # Decimal 타입을 float로 변환 (PostgreSQL 호환)
+        close = df['Close'].astype(float)
+        volume = df['Volume'].astype(float)
+
+        obv = (np.sign(close.diff()) * volume).fillna(0).cumsum()
         return obv
 
     @staticmethod
