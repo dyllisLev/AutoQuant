@@ -2,7 +2,7 @@
 데이터베이스 모델 정의
 """
 
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Text, Boolean
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Text, Boolean, Date, JSON, BigInteger
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -161,3 +161,62 @@ class BacktestResult(Base):
 
     def __repr__(self):
         return f"<BacktestResult(strategy='{self.strategy_name}', return={self.total_return}%)>"
+
+
+class TradingSignal(Base):
+    """AI 기반 매매 신호 (일일 분석 결과)"""
+    __tablename__ = 'trading_signals'
+
+    id = Column(Integer, primary_key=True)
+    stock_id = Column(Integer, ForeignKey('stocks.id'), nullable=False, index=True)
+    analysis_date = Column(Date, nullable=False, index=True)  # 분석 날짜
+    target_trade_date = Column(Date, nullable=False, index=True)  # 매매 예정 날짜
+    buy_price = Column(Float, nullable=False)  # 매수가
+    target_price = Column(Float, nullable=False)  # 목표가
+    stop_loss_price = Column(Float, nullable=False)  # 손절가
+    ai_confidence = Column(Integer, nullable=False)  # AI 신뢰도 (0-100)
+    predicted_return = Column(Float, nullable=False)  # 예상 수익률
+    current_rsi = Column(Float)  # 현재 RSI
+    current_macd = Column(Float)  # 현재 MACD
+    current_bollinger_position = Column(String(20))  # Bollinger 위치 (upper/middle/lower)
+    market_trend = Column(String(20))  # 시장 추세 (uptrend/downtrend/range)
+    investor_flow = Column(String(20))  # 투자자 매매동향 (positive/negative/neutral)
+    sector_momentum = Column(String(20))  # 섹터 모멘텀 (strong/moderate/weak)
+    ai_reasoning = Column(Text)  # AI가 선택한 이유
+    status = Column(String(20), default='pending', index=True)  # pending/executed/missed/cancelled
+    executed_price = Column(Float)  # 실제 체결가
+    executed_date = Column(DateTime)  # 실제 체결 날짜
+    actual_return = Column(Float)  # 실제 수익률
+    created_at = Column(DateTime, default=datetime.now, index=True)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    # Relationships
+    stock = relationship("Stock", foreign_keys=[stock_id])
+
+    def __repr__(self):
+        return f"<TradingSignal(stock_id={self.stock_id}, date={self.analysis_date}, confidence={self.ai_confidence}%)>"
+
+
+class MarketSnapshot(Base):
+    """시장 현황 스냅샷 (일일 시장 분석)"""
+    __tablename__ = 'market_snapshots'
+
+    id = Column(Integer, primary_key=True)
+    snapshot_date = Column(Date, nullable=False, unique=True, index=True)  # 스냅샷 날짜
+    kospi_close = Column(Float)  # KOSPI 종가
+    kospi_change = Column(Float)  # KOSPI 일일 변화율 (%)
+    kosdaq_close = Column(Float)  # KOSDAQ 종가
+    kosdaq_change = Column(Float)  # KOSDAQ 일일 변화율 (%)
+    advance_decline_ratio = Column(Float)  # 상승/하락 종목 비율
+    foreign_flow = Column(BigInteger)  # 외국인 순매수 (KRW)
+    institution_flow = Column(BigInteger)  # 기관 순매수 (KRW)
+    retail_flow = Column(BigInteger)  # 개인 순매수 (KRW)
+    sector_performance = Column(JSON)  # 섹터별 수익률 {'IT': 1.2, 'Finance': -0.5, ...}
+    top_sectors = Column(JSON)  # 상위 섹터 ['IT', 'Semiconductors', ...]
+    market_sentiment = Column(String(20))  # 시장 심리 (bullish/bearish/neutral)
+    momentum_score = Column(Integer)  # 모멘텀 점수 (0-100)
+    volatility_index = Column(Float)  # 변동성 지수
+    created_at = Column(DateTime, default=datetime.now)
+
+    def __repr__(self):
+        return f"<MarketSnapshot(date={self.snapshot_date}, kospi={self.kospi_close}, sentiment={self.market_sentiment})>"

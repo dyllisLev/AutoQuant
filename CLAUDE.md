@@ -4,17 +4,97 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**AutoQuant** is an AI-powered automated trading system for Korean stock markets, featuring:
-- Data collection from Korean Exchange (pykrx) and global sources
-- PostgreSQL database integration with KIS system (4,359 Korean stocks)
-- Technical analysis with 10+ indicators
-- AI predictions using LSTM and XGBoost models
-- Trading strategies (SMA crossover, RSI)
-- Backtesting engine with performance metrics
-- Portfolio management
-- Flask web dashboard
+**AutoQuant** is an **AI-based pre-market analysis system** for Korean stock markets that generates daily trading signals for the next trading day.
 
-**Status**: Production-ready. All core modules implemented and tested.
+**System Identity** (CRITICAL - READ FIRST):
+This is a **signal generation and analysis tool**, NOT a trading execution program. AutoQuant analyzes markets, screens stocks, predicts prices, and calculates buy/target/stop-loss prices. A **separate external program** reads the `TradingSignal` database table and executes actual trades via KIS/Kiwoom APIs.
+
+**Key Features**:
+- Two-layer intelligent filtering: AI-based semantic screening (4,359 → 30~40) + technical quantitative screening (30~40 → 3~5)
+- External AI API integration: Uses GPT-4, Claude, or Gemini for semantic market analysis
+- AI price prediction: LSTM and XGBoost models predict 7-day forward prices
+- Hybrid trading price calculation: AI predictions + support/resistance + ATR-based volatility
+- Daily automated execution: Post-market analysis generates signals for next trading day
+- Backtesting for validation: Tests AI prediction accuracy (NOT strategy backtesting)
+- KIS PostgreSQL integration: Reads 4,359 Korean stock daily OHLCV data
+
+**Status**: System design complete. Ready for 6-phase implementation.
+
+---
+
+## 📚 MANDATORY DOCUMENTATION (READ BEFORE CODING)
+
+**YOU MUST READ AND UNDERSTAND THESE DOCUMENTS BEFORE STARTING ANY IMPLEMENTATION:**
+
+### 1. **[SYSTEM_DESIGN.md](SYSTEM_DESIGN.md)** - Complete System Architecture
+   - **8-layer data flow diagram**: Data Collection → Market Analysis → AI Screening → Technical Screening → AI Prediction → Price Calculation → Signal Persistence → External Trading
+   - **Daily execution example**: Step-by-step flow with actual values
+   - **Database schema**: New TradingSignal and MarketSnapshot tables
+   - **Module overview**: Purpose and key methods for each component
+   - **Key concepts**: Two-layer filtering rationale, backtesting scope (prediction validation only)
+   - **Start here to understand the complete system architecture**
+
+### 2. **[AI_INTEGRATION.md](AI_INTEGRATION.md)** - External AI API Integration
+   - **Supported providers**: OpenAI (GPT-4), Anthropic (Claude), Google (Gemini)
+   - **Setup and configuration**: .env file, API keys, cost tracking
+   - **Prompt engineering**: Stock screening and portfolio analysis prompts
+   - **Complete AIScreener implementation**: Multi-provider support, error handling, fallbacks
+   - **Cost optimization**: Budget tracking, provider switching strategies
+   - **Testing and validation**: Example prompts and test cases
+   - **Essential for AI integration work**
+
+### 3. **[IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)** - 6-Phase Implementation Roadmap
+   - **Phase 1 (1 day)**: Database schema extension (TradingSignal, MarketSnapshot models)
+   - **Phase 2 (2 days)**: Market analysis module (MarketAnalyzer)
+   - **Phase 3 (3 days)**: AI-based stock screening (AIScreener with multi-provider support)
+   - **Phase 4 (2 days)**: Technical analysis screening (TechnicalScreener with 5-factor scoring)
+   - **Phase 5 (3 days)**: Trading price calculation (PriceCalculator with hybrid pricing)
+   - **Phase 6 (2 days)**: Daily execution script (daily_analysis.py orchestrator)
+   - **Estimated total**: 13 working days (~2-3 weeks)
+   - **Follow this plan sequentially for implementation**
+
+---
+
+## ⚠️ CRITICAL SYSTEM NOTES (REMEMBER THESE)
+
+**1. System Scope: PRE-MARKET ANALYSIS ONLY**
+   - ✅ Analyzes markets and generates trading signals
+   - ✅ Stores signals in TradingSignal database table
+   - ❌ Does NOT execute trades (external program does this)
+   - ❌ Does NOT manage real portfolio (external program does this)
+
+**2. Two-Layer Filtering Architecture (MUST UNDERSTAND)**
+   - **Layer 1 (AI-Based, 4,359 → 30~40)**: External AI API analyzes market context + all stocks, returns 30~40 semantic candidates
+   - **Layer 2 (Technical Quantitative, 30~40 → 3~5)**: TechnicalIndicators scores each candidate, returns top 3~5 with highest technical setup
+   - **Why two layers?**: Reduces computational cost by 99.8%, combines semantic wisdom (AI) with quantitative precision (technical)
+
+**3. Backtesting Scope: PREDICTION VALIDATION ONLY**
+   - ✅ Use backtesting to validate LSTM/XGBoost prediction accuracy
+   - ✅ Measure directional accuracy % and MAPE (error magnitude)
+   - ✅ Validate confidence score calibration
+   - ❌ Do NOT use backtesting for daily strategy execution
+   - ❌ Do NOT measure strategy performance metrics (this system doesn't execute)
+   - ❌ Backtesting results don't apply to real trading (separate concern)
+
+**4. External AI APIs (MANDATORY FOR SCREENING)**
+   - Each screening call uses external AI (costs ~$0.01-0.06 per call)
+   - Typical costs: ~$0.03-0.90 per month (1 call/day)
+   - Configure preferred provider in .env: `AI_SCREENING_PROVIDER=openai|anthropic|google`
+   - API keys required: OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY
+
+**5. Daily Execution (3:45 PM KST POST-MARKET)**
+   - Script: `scripts/daily_analysis.py`
+   - Runs daily after market close (3:30 PM) → 3:45 PM start
+   - Generates 3~5 trading signals for next trading day
+   - Stores in TradingSignal table with: buy price, target price, stop-loss, confidence, prediction
+   - External trader reads signals and executes trades
+
+**6. Database Extensions (Phase 1 FIRST)**
+   - Must add TradingSignal table (stock_id, buy_price, target_price, stop_loss_price, ai_confidence, predicted_return, status, ...)
+   - Must add MarketSnapshot table (date, kospi_close, investor_flows, sector_performance, market_trend, sentiment, ...)
+   - Both required for full system operation
+
+---
 
 ## Development Commands
 
@@ -170,6 +250,54 @@ Critical configuration in `.env`:
 - `test_all_modules.py` runs full integration test
 - Mock data used when network unavailable
 - Tests verify: data generation, indicators, predictions, strategies, backtesting, database
+
+## ⚠️ **CRITICAL INSTRUCTION RULES**
+
+### Rule 1: Follow Explicit Instructions Only
+**DO NOT**:
+- Assume or infer what the user wants beyond what was explicitly stated
+- Run different tests/commands than what was specifically requested
+- Execute "comprehensive" or "full" operations unless explicitly asked
+- Make assumptions about scope (e.g., "they probably want everything")
+
+**DO**:
+- Execute ONLY what was explicitly requested
+- Ask for clarification if instructions are ambiguous
+- Read IDE selections and context clues carefully
+- Honor the specific test/file mentioned by the user
+
+**Example of Violation**:
+- User: "Run test_05_trading_signals.py"
+- Wrong Response: Running test_all_modules.py instead
+- Correct Response: Running only test_05_trading_signals.py
+
+### Rule 2: Pay Attention to IDE Selection Context
+When user highlights/selects a specific section (e.g., "2.3 매매 신호 생성"), that IS the instruction
+**DO**:
+- Check the `<ide_selection>` tags in system reminders
+- Use IDE selection as the primary guide for what to execute
+- Read the selected content carefully before taking action
+
+**Example of Violation**:
+- IDE Selection: "2.3 매매 신호 생성"
+- Wrong: Concluding this means run test_quick.py
+- Correct: Find and run the specific test for section 2.3
+
+### Rule 3: Understand "Last Test Executed"
+When asked "run the last test", identify it from:
+1. IDE selection context (highest priority)
+2. Document's "실제 결과" section showing most recent completion
+3. Timestamped entries (latest date = most recent)
+
+**DO NOT** guess or assume what the "last test" was
+
+### Rule 4: Request Clarification When Ambiguous
+If instructions could mean multiple things:
+- Stop and ask for clarification
+- Don't proceed with guesses
+- Show the user what you understood from their request
+
+---
 
 ## Common Workflows
 

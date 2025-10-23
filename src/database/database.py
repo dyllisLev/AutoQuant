@@ -13,7 +13,7 @@ import pandas as pd
 from loguru import logger
 from dotenv import load_dotenv
 
-from .models import Base, Stock, StockPrice, MarketData, Prediction, Trade, Portfolio, BacktestResult
+from .models import Base, Stock, StockPrice, MarketData, Prediction, Trade, Portfolio, BacktestResult, TradingSignal, MarketSnapshot
 
 # .env 파일 로드
 load_dotenv()
@@ -496,5 +496,310 @@ class Database:
         except Exception as e:
             logger.error(f"KIS 사용 가능 종목 조회 실패: {e}")
             return pd.DataFrame()
+        finally:
+            session.close()
+
+    # ==================== TradingSignal CRUD ====================
+
+    def create_trading_signal(self, signal_data: Dict[str, Any]) -> TradingSignal:
+        """
+        거래 신호 생성
+
+        Args:
+            signal_data: 신호 데이터 딕셔너리
+                - stock_id: 종목 ID
+                - analysis_date: 분석 날짜
+                - target_trade_date: 매매 예정 날짜
+                - buy_price, target_price, stop_loss_price: 가격
+                - ai_confidence: 신뢰도 (0-100)
+                - predicted_return: 예상 수익률
+                - ... (기타 필드)
+
+        Returns:
+            TradingSignal: 생성된 거래 신호
+        """
+        session = self.get_session()
+        try:
+            signal = TradingSignal(**signal_data)
+            session.add(signal)
+            session.commit()
+            logger.info(f"거래 신호 생성: stock_id={signal.stock_id}, date={signal.analysis_date}")
+            return signal
+        except Exception as e:
+            session.rollback()
+            logger.error(f"거래 신호 생성 실패: {e}")
+            raise
+        finally:
+            session.close()
+
+    def get_trading_signals_by_date(self, date_str: str) -> List[TradingSignal]:
+        """
+        특정 날짜의 거래 신호 조회
+
+        Args:
+            date_str: 분석 날짜 (YYYY-MM-DD 형식)
+
+        Returns:
+            List[TradingSignal]: 거래 신호 리스트
+        """
+        from datetime import date as date_type
+        session = self.get_session()
+        try:
+            # 문자열을 date 객체로 변환
+            if isinstance(date_str, str):
+                date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
+            else:
+                date_obj = date_str
+
+            signals = session.query(TradingSignal).filter(
+                TradingSignal.analysis_date == date_obj
+            ).all()
+            logger.info(f"거래 신호 조회: {date_str}, {len(signals)}개")
+            return signals
+        except Exception as e:
+            logger.error(f"거래 신호 조회 실패: {e}")
+            return []
+        finally:
+            session.close()
+
+    def get_trading_signal_by_id(self, signal_id: int) -> Optional[TradingSignal]:
+        """
+        ID로 거래 신호 조회
+
+        Args:
+            signal_id: 신호 ID
+
+        Returns:
+            TradingSignal: 거래 신호
+        """
+        session = self.get_session()
+        try:
+            signal = session.query(TradingSignal).filter(TradingSignal.id == signal_id).first()
+            return signal
+        except Exception as e:
+            logger.error(f"거래 신호 조회 실패: {e}")
+            return None
+        finally:
+            session.close()
+
+    def update_trading_signal(self, signal_id: int, update_data: Dict[str, Any]) -> Optional[TradingSignal]:
+        """
+        거래 신호 수정 (매매 후 상태 업데이트용)
+
+        Args:
+            signal_id: 신호 ID
+            update_data: 수정할 데이터
+                - status: pending/executed/missed/cancelled
+                - executed_price: 실제 체결가
+                - actual_return: 실제 수익률
+                - ... (기타 필드)
+
+        Returns:
+            TradingSignal: 수정된 거래 신호
+        """
+        session = self.get_session()
+        try:
+            signal = session.query(TradingSignal).filter(TradingSignal.id == signal_id).first()
+            if signal:
+                for key, value in update_data.items():
+                    setattr(signal, key, value)
+                signal.updated_at = datetime.now()
+                session.commit()
+                logger.info(f"거래 신호 수정: signal_id={signal_id}, status={signal.status}")
+                return signal
+            else:
+                logger.warning(f"거래 신호 찾을 수 없음: {signal_id}")
+                return None
+        except Exception as e:
+            session.rollback()
+            logger.error(f"거래 신호 수정 실패: {e}")
+            return None
+        finally:
+            session.close()
+
+    def get_pending_trading_signals(self, date_str: str = None) -> List[TradingSignal]:
+        """
+        대기 중인 거래 신호 조회
+
+        Args:
+            date_str: 대상 거래 날짜 (None이면 전체)
+
+        Returns:
+            List[TradingSignal]: 대기 중인 거래 신호
+        """
+        from datetime import date as date_type
+        session = self.get_session()
+        try:
+            query = session.query(TradingSignal).filter(TradingSignal.status == 'pending')
+
+            if date_str:
+                if isinstance(date_str, str):
+                    date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
+                else:
+                    date_obj = date_str
+                query = query.filter(TradingSignal.target_trade_date == date_obj)
+
+            signals = query.order_by(TradingSignal.ai_confidence.desc()).all()
+            logger.info(f"대기 중인 신호 조회: {len(signals)}개")
+            return signals
+        except Exception as e:
+            logger.error(f"대기 신호 조회 실패: {e}")
+            return []
+        finally:
+            session.close()
+
+    # ==================== MarketSnapshot CRUD ====================
+
+    def create_market_snapshot(self, snapshot_data: Dict[str, Any]) -> MarketSnapshot:
+        """
+        시장 스냅샷 생성
+
+        Args:
+            snapshot_data: 스냅샷 데이터 딕셔너리
+                - snapshot_date: 스냅샷 날짜
+                - kospi_close, kosdaq_close: 지수 종가
+                - foreign_flow, institution_flow, retail_flow: 투자자 매매동향
+                - sector_performance: 섹터별 수익률 (JSON)
+                - ... (기타 필드)
+
+        Returns:
+            MarketSnapshot: 생성된 시장 스냅샷
+        """
+        session = self.get_session()
+        try:
+            snapshot = MarketSnapshot(**snapshot_data)
+            session.add(snapshot)
+            session.commit()
+            logger.info(f"시장 스냅샷 생성: {snapshot.snapshot_date}, KOSPI={snapshot.kospi_close}")
+            return snapshot
+        except Exception as e:
+            session.rollback()
+            logger.error(f"시장 스냅샷 생성 실패: {e}")
+            raise
+        finally:
+            session.close()
+
+    def get_market_snapshot(self, date_str: str) -> Optional[MarketSnapshot]:
+        """
+        특정 날짜의 시장 스냅샷 조회
+
+        Args:
+            date_str: 스냅샷 날짜 (YYYY-MM-DD 형식)
+
+        Returns:
+            MarketSnapshot: 시장 스냅샷
+        """
+        from datetime import date as date_type
+        session = self.get_session()
+        try:
+            if isinstance(date_str, str):
+                date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
+            else:
+                date_obj = date_str
+
+            snapshot = session.query(MarketSnapshot).filter(
+                MarketSnapshot.snapshot_date == date_obj
+            ).first()
+            return snapshot
+        except Exception as e:
+            logger.error(f"시장 스냅샷 조회 실패: {e}")
+            return None
+        finally:
+            session.close()
+
+    def get_latest_market_snapshot(self) -> Optional[MarketSnapshot]:
+        """
+        가장 최신의 시장 스냅샷 조회
+
+        Returns:
+            MarketSnapshot: 최신 시장 스냅샷
+        """
+        session = self.get_session()
+        try:
+            snapshot = session.query(MarketSnapshot).order_by(
+                MarketSnapshot.snapshot_date.desc()
+            ).first()
+            return snapshot
+        except Exception as e:
+            logger.error(f"최신 시장 스냅샷 조회 실패: {e}")
+            return None
+        finally:
+            session.close()
+
+    def update_market_snapshot(self, date_str: str, update_data: Dict[str, Any]) -> Optional[MarketSnapshot]:
+        """
+        시장 스냅샷 수정
+
+        Args:
+            date_str: 스냅샷 날짜 (YYYY-MM-DD 형식)
+            update_data: 수정할 데이터
+
+        Returns:
+            MarketSnapshot: 수정된 시장 스냅샷
+        """
+        from datetime import date as date_type
+        session = self.get_session()
+        try:
+            if isinstance(date_str, str):
+                date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
+            else:
+                date_obj = date_str
+
+            snapshot = session.query(MarketSnapshot).filter(
+                MarketSnapshot.snapshot_date == date_obj
+            ).first()
+
+            if snapshot:
+                for key, value in update_data.items():
+                    setattr(snapshot, key, value)
+                session.commit()
+                logger.info(f"시장 스냅샷 수정: {date_obj}")
+                return snapshot
+            else:
+                logger.warning(f"시장 스냅샷 찾을 수 없음: {date_obj}")
+                return None
+        except Exception as e:
+            session.rollback()
+            logger.error(f"시장 스냅샷 수정 실패: {e}")
+            return None
+        finally:
+            session.close()
+
+    def get_market_snapshots_range(self, start_date_str: str, end_date_str: str) -> List[MarketSnapshot]:
+        """
+        특정 기간의 시장 스냅샷 조회
+
+        Args:
+            start_date_str: 시작 날짜 (YYYY-MM-DD)
+            end_date_str: 종료 날짜 (YYYY-MM-DD)
+
+        Returns:
+            List[MarketSnapshot]: 시장 스냅샷 리스트
+        """
+        from datetime import date as date_type
+        session = self.get_session()
+        try:
+            if isinstance(start_date_str, str):
+                start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+            else:
+                start_date = start_date_str
+
+            if isinstance(end_date_str, str):
+                end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
+            else:
+                end_date = end_date_str
+
+            snapshots = session.query(MarketSnapshot).filter(
+                and_(
+                    MarketSnapshot.snapshot_date >= start_date,
+                    MarketSnapshot.snapshot_date <= end_date
+                )
+            ).order_by(MarketSnapshot.snapshot_date.asc()).all()
+
+            logger.info(f"시장 스냅샷 조회: {start_date} ~ {end_date}, {len(snapshots)}개")
+            return snapshots
+        except Exception as e:
+            logger.error(f"시장 스냅샷 범위 조회 실패: {e}")
+            return []
         finally:
             session.close()
