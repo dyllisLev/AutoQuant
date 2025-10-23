@@ -18,7 +18,11 @@ This is a **signal generation and analysis tool**, NOT a trading execution progr
 - Backtesting for validation: Tests AI prediction accuracy (NOT strategy backtesting)
 - KIS PostgreSQL integration: Reads 4,359 Korean stock daily OHLCV data
 
-**Status**: System design complete. Ready for 6-phase implementation.
+**Status**:
+- ✅ Phase 1: Database schema complete (TradingSignal, MarketSnapshot tables)
+- ✅ Phase 2: Market analysis with comprehensive momentum analysis (COMPLETE)
+- 🔄 Phase 3: AI-based stock screening (next)
+- ⏳ Phases 4-6: Technical screening, price calculation, daily execution
 
 ---
 
@@ -44,14 +48,21 @@ This is a **signal generation and analysis tool**, NOT a trading execution progr
    - **Essential for AI integration work**
 
 ### 3. **[IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)** - 6-Phase Implementation Roadmap
-   - **Phase 1 (1 day)**: Database schema extension (TradingSignal, MarketSnapshot models)
-   - **Phase 2 (2 days)**: Market analysis module (MarketAnalyzer)
+   - **Phase 1 (1 day)**: Database schema extension (TradingSignal, MarketSnapshot models) ✅
+   - **Phase 2 (2 days)**: Market analysis module (MarketAnalyzer) ✅
    - **Phase 3 (3 days)**: AI-based stock screening (AIScreener with multi-provider support)
    - **Phase 4 (2 days)**: Technical analysis screening (TechnicalScreener with 5-factor scoring)
    - **Phase 5 (3 days)**: Trading price calculation (PriceCalculator with hybrid pricing)
    - **Phase 6 (2 days)**: Daily execution script (daily_analysis.py orchestrator)
    - **Estimated total**: 13 working days (~2-3 weeks)
    - **Follow this plan sequentially for implementation**
+
+### 4. **[MOMENTUM_ANALYSIS_IMPROVEMENTS.md](MOMENTUM_ANALYSIS_IMPROVEMENTS.md)** - Phase 2 Comprehensive Analysis
+   - **Problem analysis**: Why original 3-factor momentum was insufficient
+   - **5-factor momentum model**: Index trend, investor flows, investor balance, sector momentum, market breadth
+   - **4-signal sentiment judgment**: Momentum + investor flow + market trend + KOSPI technical signals
+   - **Test results**: Phase 2 complete with 100% success on 5 historical dates
+   - **Key improvements**: Multi-investor analysis, reverse signals for retail investors, market structure analysis
 
 ---
 

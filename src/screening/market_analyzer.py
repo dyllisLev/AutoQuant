@@ -81,18 +81,23 @@ class MarketAnalyzer:
             # 4. 시장 추세 판단
             market_trend, advance_decline = self._analyze_trend(target_date, kospi_data)
 
-            # 5. 모멘텀 점수 계산
-            momentum_score = self._calculate_momentum(
+            # 5. 모멘텀 분석 (다중 지표)
+            momentum_analysis = self._calculate_momentum(
                 kospi_data,
                 investor_flows,
                 sector_performance
             )
+            momentum_score = momentum_analysis['momentum_score']
+            momentum_components = momentum_analysis['components']
+            momentum_detail = momentum_analysis['analysis']
 
-            # 6. 시장 심리 판단
+            # 6. 시장 심리 판단 (포괄적 분석)
             market_sentiment = self._judge_sentiment(
                 momentum_score,
+                momentum_components,
                 investor_flows,
-                market_trend
+                market_trend,
+                kospi_data
             )
 
             # 7. 변동성 지수 계산
@@ -336,9 +341,9 @@ class MarketAnalyzer:
             return 'RANGE', 0.50
 
     def _calculate_momentum(self, kospi_data: Dict, investor_flows: Dict,
-                           sector_performance: Dict) -> int:
+                           sector_performance: Dict) -> Dict:
         """
-        모멘텀 점수 계산 (0-100)
+        포괄적인 모멘텀 분석 (다중 지표 사용)
 
         Args:
             kospi_data: KOSPI 지수 데이터
@@ -346,61 +351,307 @@ class MarketAnalyzer:
             sector_performance: 섹터별 성과
 
         Returns:
-            int: 모멘텀 점수 (0-100)
+            dict: {
+                'momentum_score': int,      # 0-100 종합 점수
+                'components': {...},        # 각 지표별 점수
+                'analysis': {...}          # 상세 분석
+            }
         """
         try:
-            score = 50  # 기본값: 50점
+            components = {}
 
-            # 1. 지수 변화율 반영 (+/-20)
+            # ===== 1. 지수 성과 (Trend) - 20점 =====
             kospi_change = kospi_data['change']
-            score += min(max(kospi_change * 2, -20), 20)
-
-            # 2. 외국인 매매동향 반영 (+/-15)
-            if investor_flows['foreign'] > 0:
-                foreign_factor = min(investor_flows['foreign'] / 1e9 * 2, 15)
+            if kospi_change > 2.0:
+                index_score = 20
+            elif kospi_change > 1.0:
+                index_score = 15
+            elif kospi_change > 0.5:
+                index_score = 10
+            elif kospi_change > 0:
+                index_score = 5
+            elif kospi_change > -0.5:
+                index_score = 0
+            elif kospi_change > -1.0:
+                index_score = -5
+            elif kospi_change > -2.0:
+                index_score = -10
             else:
-                foreign_factor = max(investor_flows['foreign'] / 1e9 * 2, -15)
-            score += foreign_factor
+                index_score = -20
+            components['index_trend'] = index_score
 
-            # 3. 섹터 모멘텀 반영 (+/-15)
+            # ===== 2. 투자자 흐름 분석 (30점) =====
+            foreign = investor_flows['foreign']
+            institution = investor_flows['institution']
+            retail = investor_flows['retail']
+            total_flow = foreign + institution + retail
+
+            # 외국인 점수 (15점)
+            if foreign > 50e9:
+                foreign_score = 15
+            elif foreign > 20e9:
+                foreign_score = 10
+            elif foreign > 0:
+                foreign_score = 5
+            elif foreign > -20e9:
+                foreign_score = -5
+            elif foreign > -50e9:
+                foreign_score = -10
+            else:
+                foreign_score = -15
+
+            # 기관 점수 (10점)
+            if institution > 15e9:
+                institution_score = 10
+            elif institution > 5e9:
+                institution_score = 5
+            elif institution > -5e9:
+                institution_score = 0
+            elif institution > -15e9:
+                institution_score = -5
+            else:
+                institution_score = -10
+
+            # 개인 점수 (5점) - 개인은 종종 반대 신호
+            if retail < -20e9:
+                retail_score = 5  # 개인 매도 = 기관/외국인 매수 신호
+            elif retail < -10e9:
+                retail_score = 3
+            elif retail < 0:
+                retail_score = 1
+            elif retail < 10e9:
+                retail_score = 0
+            else:
+                retail_score = -2  # 개인 매수 과열
+
+            investor_score = foreign_score + institution_score + retail_score
+            components['investor_flow'] = investor_score
+
+            # ===== 3. 투자자 매매 밸런스 (15점) =====
+            # 큰 투자자(외국인+기관) vs 개인
+            big_investor = foreign + institution
+            if big_investor > 0 and retail < 0:
+                balance_score = 15  # 강한 신호: 기관 매수, 개인 매도
+            elif big_investor > 0:
+                balance_score = 10  # 기관 매수 (개인도 함께)
+            elif big_investor > -30e9:
+                balance_score = 5   # 약한 신호
+            else:
+                balance_score = -10 # 기관 매도
+            components['investor_balance'] = balance_score
+
+            # ===== 4. 섹터 모멘텀 (20점) =====
             avg_sector_perf = np.mean(list(sector_performance.values()))
-            sector_factor = min(max(avg_sector_perf * 2, -15), 15)
-            score += sector_factor
+            positive_sectors = sum(1 for v in sector_performance.values() if v > 0)
+            sector_ratio = positive_sectors / len(sector_performance)
 
-            # 점수 범위 조정 (0-100)
-            momentum = int(min(max(score, 0), 100))
+            # 섹터 성과 평균 (10점)
+            if avg_sector_perf > 1.0:
+                sector_perf_score = 10
+            elif avg_sector_perf > 0.5:
+                sector_perf_score = 7
+            elif avg_sector_perf > 0:
+                sector_perf_score = 4
+            elif avg_sector_perf > -0.5:
+                sector_perf_score = 0
+            elif avg_sector_perf > -1.0:
+                sector_perf_score = -4
+            else:
+                sector_perf_score = -10
 
-            self.logger.info(f"모멘텀 점수: {momentum}/100")
-            return momentum
+            # 상승 섹터 비중 (10점)
+            if sector_ratio > 0.8:
+                sector_breadth_score = 10
+            elif sector_ratio > 0.6:
+                sector_breadth_score = 7
+            elif sector_ratio > 0.5:
+                sector_breadth_score = 4
+            elif sector_ratio > 0.3:
+                sector_breadth_score = 0
+            else:
+                sector_breadth_score = -10
+
+            sector_score = sector_perf_score + sector_breadth_score
+            components['sector_momentum'] = sector_score
+
+            # ===== 5. 시장 구조 분석 (15점) =====
+            # 상승/하락 비율로 시장 폭 측정
+            advance_decline = kospi_data.get('advance_decline', 0.5)
+
+            if advance_decline > 0.7:
+                breadth_score = 15
+            elif advance_decline > 0.6:
+                breadth_score = 10
+            elif advance_decline > 0.5:
+                breadth_score = 5
+            elif advance_decline > 0.4:
+                breadth_score = 0
+            elif advance_decline > 0.3:
+                breadth_score = -5
+            else:
+                breadth_score = -15
+            components['market_breadth'] = breadth_score
+
+            # ===== 종합 점수 계산 =====
+            total_score = (
+                index_score +
+                investor_score +
+                balance_score +
+                sector_score +
+                breadth_score
+            )
+
+            # 0-100 범위로 정규화
+            # 최대값: 20+15+15+20+15 = 85
+            # 최소값: -20-15-10-20-15 = -80
+            normalized_score = 50 + (total_score / 85) * 50
+            momentum_score = int(min(max(normalized_score, 0), 100))
+
+            # 상세 분석 정보
+            analysis = {
+                'index_trend': kospi_change,
+                'positive_sectors': f"{positive_sectors}/{len(sector_performance)}",
+                'foreign_flow': foreign / 1e9,
+                'institution_flow': institution / 1e9,
+                'retail_flow': retail / 1e9,
+                'big_investor_total': big_investor / 1e9,
+                'advance_decline_ratio': advance_decline
+            }
+
+            result = {
+                'momentum_score': momentum_score,
+                'components': components,
+                'analysis': analysis
+            }
+
+            self.logger.info(f"모멘텀 분석 완료: {momentum_score}/100 "
+                           f"(지수:{index_score}, 투자자:{investor_score}, "
+                           f"밸런스:{balance_score}, 섹터:{sector_score}, "
+                           f"폭:{breadth_score})")
+
+            return result
 
         except Exception as e:
             self.logger.error(f"모멘텀 계산 실패: {e}")
-            return 50
+            return {
+                'momentum_score': 50,
+                'components': {},
+                'analysis': {}
+            }
 
-    def _judge_sentiment(self, momentum_score: int, investor_flows: Dict,
-                        market_trend: str) -> str:
+    def _judge_sentiment(self, momentum_score: int, momentum_components: Dict,
+                        investor_flows: Dict, market_trend: str, kospi_data: Dict) -> str:
         """
-        시장 심리 판단 (BULLISH/NEUTRAL/BEARISH)
+        포괄적 시장 심리 판단 (BULLISH/NEUTRAL/BEARISH)
+
+        다양한 신호를 종합하여 더 정확한 시장 심리 판단:
+        - 모멘텀 점수 (주신호, 40%)
+        - 투자자 흐름 분석 (20%)
+        - 시장 추세 (20%)
+        - KOSPI 기술적 신호 (20%)
 
         Args:
-            momentum_score: 모멘텀 점수
-            investor_flows: 투자자 매매동향
-            market_trend: 시장 추세
+            momentum_score: 모멘텀 점수 (0-100)
+            momentum_components: 모멘텀 구성요소 {index_trend, investor_flow, investor_balance, sector_momentum, market_breadth}
+            investor_flows: 투자자 매매동향 {foreign, institution, retail}
+            market_trend: 시장 추세 (UPTREND/DOWNTREND/RANGE)
+            kospi_data: KOSPI 데이터 {change, advance_decline}
 
         Returns:
-            str: 시장 심리
+            str: 시장 심리 (BULLISH/NEUTRAL/BEARISH)
         """
         try:
-            # 1. 모멘텀 점수
-            if momentum_score > 65:
+            # 기본 신호 점수 (0-100 범위로 정규화)
+            signal_scores = []
+
+            # 1. 모멘텀 점수 신호 (40% 가중치)
+            momentum_signal = momentum_score
+            signal_scores.append(('momentum', momentum_signal, 0.40))
+
+            # 2. 투자자 흐름 신호 (20% 가중치)
+            # 기관+외국인 순매수 vs 개인 순매도 = 강한 신호
+            big_investor_sum = investor_flows.get('foreign', 0) + investor_flows.get('institution', 0)
+            retail_flow = investor_flows.get('retail', 0)
+
+            # 기관/외국인과 개인의 발산도 계산
+            if big_investor_sum > 0 and retail_flow < 0:
+                # 최고의 신호: 기관/외국인 매수, 개인 매도
+                investor_signal = min(85, 50 + (abs(retail_flow) / 1e10))  # 개인 매도가 클수록 높은 점수
+            elif big_investor_sum > 0:
+                investor_signal = 60
+            elif big_investor_sum < 0 and retail_flow < 0:
+                investor_signal = 20
+            else:
+                investor_signal = 50
+
+            signal_scores.append(('investor_flow', investor_signal, 0.20))
+
+            # 3. 시장 추세 신호 (20% 가중치)
+            if market_trend == 'UPTREND':
+                trend_signal = 75
+            elif market_trend == 'DOWNTREND':
+                trend_signal = 25
+            else:  # RANGE
+                trend_signal = 50
+
+            signal_scores.append(('market_trend', trend_signal, 0.20))
+
+            # 4. KOSPI 기술적 신호 (20% 가중치)
+            kospi_change = kospi_data.get('change', 0)
+            advance_decline = kospi_data.get('advance_decline', 0.5)
+
+            # KOSPI 변화율 신호
+            if kospi_change > 1.5:
+                kospi_signal = 75
+            elif kospi_change > 0.5:
+                kospi_signal = 60
+            elif kospi_change > -0.5:
+                kospi_signal = 50
+            elif kospi_change > -1.5:
+                kospi_signal = 40
+            else:
+                kospi_signal = 25
+
+            # 시장 폭(advance/decline) 보정
+            if advance_decline > 0.55:  # 상승/하락 비율 > 55% = 강한 신호
+                kospi_signal = min(100, kospi_signal + 10)
+            elif advance_decline < 0.45:  # 상승/하락 비율 < 45% = 약한 신호
+                kospi_signal = max(0, kospi_signal - 10)
+
+            signal_scores.append(('kospi_technical', kospi_signal, 0.20))
+
+            # 5. 종합 심리 점수 계산 (가중 평균)
+            weighted_sentiment = sum(score * weight for _, score, weight in signal_scores) / sum(w for _, _, w in signal_scores)
+
+            # 6. 세부 신호 로그
+            self.logger.debug(f"심리 판단 신호:")
+            for signal_name, signal_value, weight in signal_scores:
+                self.logger.debug(f"  - {signal_name}: {signal_value:.0f} (가중치: {weight*100:.0f}%)")
+            self.logger.debug(f"종합 심리 점수: {weighted_sentiment:.0f}")
+
+            # 7. 심리 분류 (더 정교한 임계값)
+            # 모멘텀과 기타 신호의 조화도 고려
+            momentum_component_score = momentum_components.get('investor_balance', 0)  # 가장 중요한 신호
+
+            if weighted_sentiment > 65:
                 return 'BULLISH'
-            elif momentum_score < 35:
+            elif weighted_sentiment < 35:
                 return 'BEARISH'
             else:
+                # NEUTRAL 영역에서 추가 판단
+                # momentum_score와 investor_balance 신호가 일치하는지 확인
+                if momentum_score > 60 and momentum_component_score > 10:
+                    # 모멘텀 점수는 높지만 weighted_sentiment가 낮은 경우
+                    # 투자자 흐름이 강하면 BULLISH로 판단
+                    if investor_signal > 65:
+                        return 'BULLISH'
+
                 return 'NEUTRAL'
 
         except Exception as e:
             self.logger.error(f"심리 판단 실패: {e}")
+            import traceback
+            traceback.print_exc()
             return 'NEUTRAL'
 
     def _calculate_volatility(self, target_date: date) -> float:
