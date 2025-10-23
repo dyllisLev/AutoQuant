@@ -186,15 +186,14 @@ class MarketAnalyzer:
                     raise
 
             elif index_name == "KOSDAQ":
-                # KOSDAQ은 pykrx에 없으므로 코스피 대형주 (1002) 사용 또는 대체
-                self.logger.info(f"KOSDAQ 데이터 조회: {target_date}")
+                # KOSDAQ 지수 조회 (pykrx 지수코드: 2001)
+                self.logger.info(f"KOSDAQ 데이터 조회: {target_date} (pykrx 코드: 2001)")
                 try:
-                    # 코스피 대형주 지수 (1002)를 KOSDAQ 대체로 사용
-                    # 또는 별도의 API 사용 필요
-                    df = stock.get_index_ohlcv(start_date_str, date_str, "1002")
+                    # pykrx.stock.get_index_ohlcv() 사용
+                    df = stock.get_index_ohlcv(start_date_str, date_str, "2001")
 
                     if df.empty:
-                        self.logger.warning(f"코스피 대형주 데이터 없음: {target_date}")
+                        self.logger.warning(f"KOSDAQ 데이터 없음: {target_date}")
                         raise ValueError("Empty dataframe")
 
                     latest = df.iloc[-1]
@@ -214,11 +213,11 @@ class MarketAnalyzer:
                         'high': high,
                         'low': low
                     }
-                    self.logger.info(f"코스피 대형주 조회 성공: {close:.2f} ({change:+.2f}%)")
+                    self.logger.info(f"KOSDAQ 조회 성공: {close:.2f} ({change:+.2f}%)")
                     return result
 
                 except Exception as e:
-                    self.logger.error(f"KOSDAQ 대체 지수 조회 실패: {e}")
+                    self.logger.error(f"KOSDAQ pykrx 조회 실패: {e}")
                     raise
 
             else:
