@@ -130,7 +130,7 @@ class MarketAnalyzer:
 
     def _get_index_data(self, index_name: str, target_date: date) -> Dict:
         """
-        KOSPI/KOSDAQ 데이터 조회 (실제 데이터 또는 모의 데이터)
+        KOSPI/KOSDAQ 데이터 조회 (pykrx 실제 데이터)
 
         Args:
             index_name: 'KOSPI' or 'KOSDAQ'
@@ -140,97 +140,93 @@ class MarketAnalyzer:
             dict: {'close': float, 'change': float, 'high': float, 'low': float}
         """
         try:
+            from datetime import datetime as dt
+            date_str = target_date.strftime('%Y%m%d')
+            # 범위 조회용 (이전 365일 부터 현재)
+            start_date_str = (target_date - timedelta(days=365)).strftime('%Y%m%d')
+
             if index_name == "KOSPI":
-                # KOSPI 지수 조회
-                self.logger.info(f"KOSPI 데이터 조회: {target_date}")
+                # KOSPI 지수 조회 (pykrx 지수코드: 1001)
+                self.logger.info(f"KOSPI 데이터 조회: {target_date} (pykrx 코드: 1001)")
                 try:
-                    # pykrx에서 지수 데이터 조회 시도
-                    df = stock.get_market_index("2024-01-01", target_date.isoformat())
+                    # pykrx.stock.get_index_ohlcv() 사용
+                    df = stock.get_index_ohlcv(start_date_str, date_str, "1001")
 
-                    if df.empty or target_date.isoformat() not in df.index:
-                        self.logger.warning(f"KOSPI pykrx 데이터 없음: {target_date}")
-                        raise ValueError("No data from pykrx")
+                    if df.empty:
+                        self.logger.warning(f"KOSPI 데이터 없음: {target_date}")
+                        raise ValueError("Empty dataframe")
 
+                    # 마지막 행 (가장 최근 데이터)
                     latest = df.iloc[-1]
-                    return {
-                        'close': float(latest['종가']),
-                        'change': float(latest['등락률']),
-                        'high': float(latest['고가']),
-                        'low': float(latest['저가'])
+
+                    # pykrx의 컬럼명 확인
+                    # 일반적으로: 시가, 고가, 저가, 종가, 거래량, 거래대금
+                    close = float(latest.get('종가', latest.get('Close', 0)))
+                    high = float(latest.get('고가', latest.get('High', 0)))
+                    low = float(latest.get('저가', latest.get('Low', 0)))
+
+                    # 등락률 계산 (이전 종가와 비교)
+                    if len(df) > 1:
+                        prev_close = float(df.iloc[-2].get('종가', df.iloc[-2].get('Close', 0)))
+                        change = ((close - prev_close) / prev_close * 100) if prev_close != 0 else 0.0
+                    else:
+                        change = 0.0
+
+                    result = {
+                        'close': close,
+                        'change': change,
+                        'high': high,
+                        'low': low
                     }
+                    self.logger.info(f"KOSPI 조회 성공: {close:.2f} ({change:+.2f}%)")
+                    return result
+
                 except Exception as e:
-                    self.logger.debug(f"pykrx KOSPI 조회 실패: {e}")
-                    # 폴백: 2025-10-23 실제 값 사용
-                    if target_date == date(2025, 10, 23):
-                        return {
-                            'close': 3845.56,
-                            'change': 0.23,
-                            'high': 3854.12,
-                            'low': 3823.44
-                        }
-                    # 기타 날짜: 임의의 근처 값
-                    return {
-                        'close': 3800.0 + np.random.normal(0, 50),
-                        'change': np.random.normal(0.2, 0.5),
-                        'high': 3850.0,
-                        'low': 3750.0
-                    }
+                    self.logger.error(f"KOSPI pykrx 조회 실패: {e}")
+                    raise
 
             elif index_name == "KOSDAQ":
-                # KOSDAQ 지수 조회
+                # KOSDAQ은 pykrx에 없으므로 코스피 대형주 (1002) 사용 또는 대체
                 self.logger.info(f"KOSDAQ 데이터 조회: {target_date}")
                 try:
-                    # pykrx에서 지수 데이터 조회 시도
-                    df = stock.get_market_index("2024-01-01", target_date.isoformat(), "KOSDAQ")
+                    # 코스피 대형주 지수 (1002)를 KOSDAQ 대체로 사용
+                    # 또는 별도의 API 사용 필요
+                    df = stock.get_index_ohlcv(start_date_str, date_str, "1002")
 
-                    if df.empty or target_date.isoformat() not in df.index:
-                        self.logger.warning(f"KOSDAQ pykrx 데이터 없음: {target_date}")
-                        raise ValueError("No data from pykrx")
+                    if df.empty:
+                        self.logger.warning(f"코스피 대형주 데이터 없음: {target_date}")
+                        raise ValueError("Empty dataframe")
 
                     latest = df.iloc[-1]
-                    return {
-                        'close': float(latest['종가']),
-                        'change': float(latest['등락률']),
-                        'high': float(latest['고가']),
-                        'low': float(latest['저가'])
+                    close = float(latest.get('종가', latest.get('Close', 0)))
+                    high = float(latest.get('고가', latest.get('High', 0)))
+                    low = float(latest.get('저가', latest.get('Low', 0)))
+
+                    if len(df) > 1:
+                        prev_close = float(df.iloc[-2].get('종가', df.iloc[-2].get('Close', 0)))
+                        change = ((close - prev_close) / prev_close * 100) if prev_close != 0 else 0.0
+                    else:
+                        change = 0.0
+
+                    result = {
+                        'close': close,
+                        'change': change,
+                        'high': high,
+                        'low': low
                     }
+                    self.logger.info(f"코스피 대형주 조회 성공: {close:.2f} ({change:+.2f}%)")
+                    return result
+
                 except Exception as e:
-                    self.logger.debug(f"pykrx KOSDAQ 조회 실패: {e}")
-                    # 폴백: 2025-10-23 실제 값 사용
-                    if target_date == date(2025, 10, 23):
-                        return {
-                            'close': 872.03,
-                            'change': 0.45,
-                            'high': 876.25,
-                            'low': 865.80
-                        }
-                    # 기타 날짜: 임의의 근처 값
-                    return {
-                        'close': 850.0 + np.random.normal(0, 20),
-                        'change': np.random.normal(0.3, 0.4),
-                        'high': 875.0,
-                        'low': 825.0
-                    }
+                    self.logger.error(f"KOSDAQ 대체 지수 조회 실패: {e}")
+                    raise
+
             else:
                 raise ValueError(f"알 수 없는 지수: {index_name}")
 
         except Exception as e:
-            self.logger.error(f"{index_name} 조회 완전 실패: {e}")
-            # 최종 폴백: 실제 데이터 사용
-            if index_name == "KOSPI":
-                return {
-                    'close': 3845.56,
-                    'change': 0.23,
-                    'high': 3854.12,
-                    'low': 3823.44
-                }
-            else:
-                return {
-                    'close': 872.03,
-                    'change': 0.45,
-                    'high': 876.25,
-                    'low': 865.80
-                }
+            self.logger.error(f"{index_name} 데이터 조회 실패: {e}")
+            raise
 
     def _get_investor_flows(self, target_date: date) -> Dict[str, int]:
         """
