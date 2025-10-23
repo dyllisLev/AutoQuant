@@ -13,7 +13,7 @@ AutoQuant는 KIS 주식 데이터 수집 시스템의 PostgreSQL 데이터베이
 
 ### 1. .env 파일 생성
 
-프로젝트 루트 디렉토리에 `.env` 파일을 생성하세요:
+프로젝트 루트 디렉토리의 `.env` 파일에 PostgreSQL 설정이 이미 포함되어 있습니다.
 
 ```bash
 # 데이터베이스 설정
@@ -22,11 +22,13 @@ DB_HOST=***REDACTED_HOST***
 DB_PORT=5432
 DB_NAME=postgres
 DB_USER=postgres
-DB_PASSWORD=***REDACTED***
+DB_PASSWORD=<프로젝트에_포함된_값>
 
 # 로그 레벨
 LOG_LEVEL=INFO
 ```
+
+자세한 설정은 프로젝트의 `.env` 파일을 참고하세요.
 
 ### 2. 패키지 설치
 

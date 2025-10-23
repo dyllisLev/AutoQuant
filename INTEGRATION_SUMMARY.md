@@ -20,14 +20,9 @@ AutoQuant는 기존 `/workspace/kis` 의 데이터 수집 시스템과 PostgreSQ
 
 #### 구현 내용
 1. **`.env` 파일 기반 설정 관리**
-   ```
-   DB_TYPE=postgresql
-   DB_HOST=***REDACTED_HOST***
-   DB_PORT=5432
-   DB_NAME=postgres
-   DB_USER=postgres
-   DB_PASSWORD=***REDACTED***
-   ```
+   - PostgreSQL 연결 정보 환경변수로 관리
+   - 프로젝트에 포함된 `.env` 파일 사용
+   - `.gitignore`에서 제외하여 보안 관리
 
 2. **database.py 수정**
    - PostgreSQL 자동 연결
