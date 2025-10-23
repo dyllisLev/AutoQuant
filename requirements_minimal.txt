@@ -1,0 +1,49 @@
+# Core Data Collection
+pykrx>=1.0.40
+finance-datareader
+yfinance>=0.2.28
+pandas>=1.5.0,<2.1
+numpy>=1.21.0,<1.25
+
+# Database
+sqlalchemy>=2.0.0
+
+# Machine Learning - Compatible versions for Python 3.8
+scikit-learn>=1.0.0,<1.4
+tensorflow>=2.10.0,<2.14
+xgboost>=1.6.0,<2.0
+lightgbm>=3.3.0
+
+# Technical Analysis
+ta>=0.10.0
+
+# Visualization
+matplotlib>=3.5.0
+seaborn>=0.11.0
+plotly>=5.0.0
+
+# Web & API
+requests>=2.27.0
+beautifulsoup4>=4.11.0
+flask>=2.2.0
+werkzeug>=2.2.0
+
+# Task Scheduling
+schedule>=1.1.0
+APScheduler>=3.9.0
+
+# Configuration
+python-dotenv>=0.20.0
+pyyaml>=6.0
+
+# Logging
+loguru>=0.6.0
+
+# Utilities
+python-dateutil>=2.8.0
+pytz>=2022.1
+tqdm>=4.64.0
+
+# Testing
+pytest>=7.0.0
+pytest-cov>=3.0.0
