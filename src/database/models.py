@@ -388,7 +388,7 @@ class TradingSignal(Base):
     id = Column(Integer, primary_key=True)
     analysis_run_id = Column(Integer, ForeignKey('analysis_runs.id', ondelete='CASCADE'), nullable=False, index=True)
     tech_selection_id = Column(Integer, ForeignKey('technical_selections.id'))  # Link to technical selection
-    stock_id = Column(Integer, ForeignKey('stocks.id'), nullable=False, index=True)
+    stock_id = Column(Integer, ForeignKey('stocks.id'), nullable=True, index=True)
 
     stock_code = Column(String(10), nullable=False, index=True)
     company_name = Column(String(100))

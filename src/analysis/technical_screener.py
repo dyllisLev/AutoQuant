@@ -113,7 +113,8 @@ class TechnicalScreener:
                 # Final score: 60% technical + 40% AI confidence
                 final_score = (technical_score * 0.6) + (ai_confidence * 0.4)
 
-                # Store scores
+                # Store scores and current price
+                candidates_with_scores.loc[idx, 'current_price'] = latest['Close']
                 candidates_with_scores.loc[idx, 'sma_score'] = sma_score
                 candidates_with_scores.loc[idx, 'rsi_score'] = rsi_score
                 candidates_with_scores.loc[idx, 'macd_score'] = macd_score

@@ -341,7 +341,7 @@ class AnalysisOrchestrator:
                 tech_screening_id=tech_result.id,
                 stock_code=row['stock_code'],
                 company_name=row.get('company_name', f"Company {row['stock_code']}"),
-                current_price=row['closing_price'],
+                current_price=row['current_price'],
                 sma_score=row['sma_score'],
                 rsi_score=row['rsi_score'],
                 macd_score=row['macd_score'],
@@ -381,7 +381,7 @@ class AnalysisOrchestrator:
         for idx, row in selected_stocks.iterrows():
             try:
                 stock_code = row['stock_code']
-                current_price = row['closing_price']
+                current_price = row['current_price']
 
                 # Get OHLCV data for price calculation
                 ohlcv_df = self.db.get_daily_ohlcv_from_kis(
@@ -393,6 +393,21 @@ class AnalysisOrchestrator:
                 if ohlcv_df is None or len(ohlcv_df) < 60:
                     logger.warning(f"   ⚠️  Insufficient data for {stock_code}, skipping")
                     continue
+
+                # Rename columns to match TechnicalIndicators expectations (KIS DB uses lowercase)
+                ohlcv_df = ohlcv_df.copy()
+                ohlcv_df.rename(columns={
+                    'open': 'Open',
+                    'high': 'High',
+                    'low': 'Low',
+                    'close': 'Close',
+                    'volume': 'Volume'
+                }, inplace=True)
+
+                # Convert Decimal to float
+                for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
+                    if col in ohlcv_df.columns:
+                        ohlcv_df[col] = ohlcv_df[col].astype(float)
 
                 # Add technical indicators
                 from src.analysis.technical_indicators import TechnicalIndicators
@@ -414,7 +429,15 @@ class AnalysisOrchestrator:
                         tech_selection_id = selection.id
                         break
 
-                # Create trading signal
+                # Helper function to convert numpy types to Python types
+                def to_python_type(value):
+                    """Convert numpy types to Python native types for database storage"""
+                    import numpy as np
+                    if isinstance(value, (np.integer, np.floating)):
+                        return float(value)
+                    return value
+
+                # Create trading signal (convert numpy types to Python floats)
                 signal = TradingSignal(
                     analysis_run_id=analysis_run.id,
                     tech_selection_id=tech_selection_id,
@@ -423,17 +446,17 @@ class AnalysisOrchestrator:
                     company_name=row.get('company_name', f"Company {stock_code}"),
                     analysis_date=analysis_date,
                     target_trade_date=target_trade_date,
-                    current_price=prices['current_price'],
-                    buy_price=prices['buy_price'],
-                    target_price=prices['target_price'],
-                    stop_loss_price=prices['stop_loss_price'],
-                    predicted_return=prices['predicted_return'],
-                    risk_reward_ratio=prices['risk_reward_ratio'],
-                    ai_confidence=prices['ai_confidence'],
-                    support_level=prices['support_level'],
-                    resistance_level=prices['resistance_level'],
-                    pivot_point=prices['pivot_point'],
-                    atr=prices['atr'],
+                    current_price=to_python_type(prices['current_price']),
+                    buy_price=to_python_type(prices['buy_price']),
+                    target_price=to_python_type(prices['target_price']),
+                    stop_loss_price=to_python_type(prices['stop_loss_price']),
+                    predicted_return=to_python_type(prices['predicted_return']),
+                    risk_reward_ratio=to_python_type(prices['risk_reward_ratio']),
+                    ai_confidence=to_python_type(prices['ai_confidence']),
+                    support_level=to_python_type(prices['support_level']),
+                    resistance_level=to_python_type(prices['resistance_level']),
+                    pivot_point=to_python_type(prices['pivot_point']),
+                    atr=to_python_type(prices['atr']),
                     calculation_details=prices.get('calculation_details', {}),
                     status='pending'
                 )
