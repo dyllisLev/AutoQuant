@@ -163,60 +163,298 @@ class BacktestResult(Base):
         return f"<BacktestResult(strategy='{self.strategy_name}', return={self.total_return}%)>"
 
 
+class AnalysisRun(Base):
+    """분석 실행 기록 (일일 분석 실행 추적)"""
+    __tablename__ = 'analysis_runs'
+
+    id = Column(Integer, primary_key=True)
+    run_date = Column(Date, nullable=False, index=True)  # 분석 실행 날짜
+    target_trade_date = Column(Date, nullable=False)  # 매매 대상 날짜
+    status = Column(String(20), nullable=False, default='running', index=True)  # running, completed, failed
+    start_time = Column(DateTime, nullable=False)
+    end_time = Column(DateTime)
+    total_duration_seconds = Column(Float)
+
+    # Phase completion tracking
+    phase1_completed = Column(Boolean, default=False)  # Data collection
+    phase2_completed = Column(Boolean, default=False)  # Market analysis
+    phase3_completed = Column(Boolean, default=False)  # AI screening
+    phase4_completed = Column(Boolean, default=False)  # Technical screening
+    phase5_completed = Column(Boolean, default=False)  # Price calculation
+
+    # Error tracking
+    error_message = Column(Text)
+    error_phase = Column(String(20))
+
+    # Summary metrics
+    total_stocks_analyzed = Column(Integer)
+    ai_candidates_count = Column(Integer)
+    technical_selections_count = Column(Integer)
+    final_signals_count = Column(Integer)
+
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    # Relationships
+    market_snapshot = relationship("MarketSnapshot", back_populates="analysis_run", uselist=False, cascade="all, delete-orphan")
+    ai_screening = relationship("AIScreeningResult", back_populates="analysis_run", uselist=False, cascade="all, delete-orphan")
+    technical_screening = relationship("TechnicalScreeningResult", back_populates="analysis_run", uselist=False, cascade="all, delete-orphan")
+    trading_signals = relationship("TradingSignal", back_populates="analysis_run", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        return f"<AnalysisRun(date={self.run_date}, status='{self.status}', signals={self.final_signals_count})>"
+
+
+class MarketSnapshot(Base):
+    """시장 분석 결과 (Phase 2)"""
+    __tablename__ = 'market_snapshots'
+
+    id = Column(Integer, primary_key=True)
+    analysis_run_id = Column(Integer, ForeignKey('analysis_runs.id', ondelete='CASCADE'), nullable=False, index=True)
+    snapshot_date = Column(Date, nullable=False, index=True)
+
+    # KOSPI/KOSDAQ
+    kospi_close = Column(Float, nullable=False)
+    kospi_change_pct = Column(Float, nullable=False)
+    kospi_volume = Column(BigInteger)
+    kospi_trend = Column(String(20))  # UPTREND, DOWNTREND, NEUTRAL
+
+    kosdaq_close = Column(Float, nullable=False)
+    kosdaq_change_pct = Column(Float, nullable=False)
+    kosdaq_volume = Column(BigInteger)
+    kosdaq_trend = Column(String(20))
+
+    # Investor flows (KRW)
+    foreign_net_buy = Column(BigInteger)
+    foreign_buy_ratio = Column(Float)
+    institution_net_buy = Column(BigInteger)
+    institution_buy_ratio = Column(Float)
+    retail_net_buy = Column(BigInteger)
+    retail_buy_ratio = Column(Float)
+
+    # Market breadth
+    advancing_count = Column(Integer)
+    declining_count = Column(Integer)
+    unchanged_count = Column(Integer)
+    new_highs_52w = Column(Integer)
+    new_lows_52w = Column(Integer)
+
+    # Momentum & Sentiment
+    momentum_score = Column(Float)  # 0-100
+    market_sentiment = Column(String(20))  # BULLISH, BEARISH, NEUTRAL
+
+    # Sector performance (JSON)
+    sector_performance = Column(JSON)  # [{sector, change_pct, volume_ratio}, ...]
+
+    created_at = Column(DateTime, default=datetime.now)
+
+    # Relationships
+    analysis_run = relationship("AnalysisRun", back_populates="market_snapshot")
+
+    def __repr__(self):
+        return f"<MarketSnapshot(date={self.snapshot_date}, kospi={self.kospi_close}, sentiment='{self.market_sentiment}')>"
+
+
+class AIScreeningResult(Base):
+    """AI 스크리닝 결과 (Phase 3)"""
+    __tablename__ = 'ai_screening_results'
+
+    id = Column(Integer, primary_key=True)
+    analysis_run_id = Column(Integer, ForeignKey('analysis_runs.id', ondelete='CASCADE'), nullable=False, index=True)
+    screening_date = Column(Date, nullable=False)
+
+    # AI provider info
+    ai_provider = Column(String(50))  # openai, anthropic, google
+    ai_model = Column(String(50))     # gpt-4, claude-3, gemini-pro
+
+    # Execution metrics
+    total_input_stocks = Column(Integer, nullable=False)
+    selected_count = Column(Integer, nullable=False)
+    execution_time_seconds = Column(Float)
+    api_cost_usd = Column(Float)
+
+    # Prompt & Response
+    prompt_text = Column(Text)
+    response_text = Column(Text)
+    response_summary = Column(Text)
+
+    created_at = Column(DateTime, default=datetime.now)
+
+    # Relationships
+    analysis_run = relationship("AnalysisRun", back_populates="ai_screening")
+    candidates = relationship("AICandidate", back_populates="ai_screening", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        return f"<AIScreeningResult(date={self.screening_date}, provider='{self.ai_provider}', selected={self.selected_count})>"
+
+
+class AICandidate(Base):
+    """AI 선정 종목 상세 (Phase 3)"""
+    __tablename__ = 'ai_candidates'
+
+    id = Column(Integer, primary_key=True)
+    ai_screening_id = Column(Integer, ForeignKey('ai_screening_results.id', ondelete='CASCADE'), nullable=False, index=True)
+
+    stock_code = Column(String(10), nullable=False, index=True)
+    company_name = Column(String(100))
+
+    # AI evaluation
+    ai_score = Column(Float)  # 0-100
+    ai_reasoning = Column(Text)
+    rank_in_batch = Column(Integer)
+
+    # Mentioned factors (JSON array)
+    mentioned_factors = Column(JSON)  # ['sector_strength', 'foreign_buying', ...]
+
+    # Stock data at screening time
+    current_price = Column(Float)
+    market_cap = Column(BigInteger)
+    volume = Column(BigInteger)
+    sector = Column(String(50))
+
+    created_at = Column(DateTime, default=datetime.now)
+
+    # Relationships
+    ai_screening = relationship("AIScreeningResult", back_populates="candidates")
+
+    def __repr__(self):
+        return f"<AICandidate(code={self.stock_code}, score={self.ai_score}, rank={self.rank_in_batch})>"
+
+
+class TechnicalScreeningResult(Base):
+    """기술적 스크리닝 결과 (Phase 4)"""
+    __tablename__ = 'technical_screening_results'
+
+    id = Column(Integer, primary_key=True)
+    analysis_run_id = Column(Integer, ForeignKey('analysis_runs.id', ondelete='CASCADE'), nullable=False, index=True)
+    screening_date = Column(Date, nullable=False)
+
+    input_candidates_count = Column(Integer, nullable=False)
+    final_selections_count = Column(Integer, nullable=False)
+    execution_time_seconds = Column(Float)
+
+    # Scoring thresholds used
+    min_final_score = Column(Float)  # Minimum score to pass (e.g., 50)
+    max_selections = Column(Integer)   # Maximum stocks to select (e.g., 5)
+
+    created_at = Column(DateTime, default=datetime.now)
+
+    # Relationships
+    analysis_run = relationship("AnalysisRun", back_populates="technical_screening")
+    selections = relationship("TechnicalSelection", back_populates="tech_screening", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        return f"<TechnicalScreeningResult(date={self.screening_date}, input={self.input_candidates_count}, selected={self.final_selections_count})>"
+
+
+class TechnicalSelection(Base):
+    """기술적 선정 종목 상세 (Phase 4)"""
+    __tablename__ = 'technical_selections'
+
+    id = Column(Integer, primary_key=True)
+    tech_screening_id = Column(Integer, ForeignKey('technical_screening_results.id', ondelete='CASCADE'), nullable=False, index=True)
+
+    stock_code = Column(String(10), nullable=False, index=True)
+    company_name = Column(String(100))
+    current_price = Column(Float, nullable=False)
+
+    # Technical scores (5-factor system)
+    sma_score = Column(Float)      # out of 20
+    rsi_score = Column(Float)      # out of 15
+    macd_score = Column(Float)     # out of 15
+    bb_score = Column(Float)       # out of 10
+    volume_score = Column(Float)   # out of 10
+    final_score = Column(Float)    # out of 70
+
+    # Technical indicators (JSON for all 16 indicators)
+    indicators = Column(JSON)  # {SMA_5, SMA_20, RSI_14, MACD, ...}
+
+    rank_in_batch = Column(Integer)
+    selection_reason = Column(Text)
+
+    created_at = Column(DateTime, default=datetime.now)
+
+    # Relationships
+    tech_screening = relationship("TechnicalScreeningResult", back_populates="selections")
+
+    def __repr__(self):
+        return f"<TechnicalSelection(code={self.stock_code}, score={self.final_score}, rank={self.rank_in_batch})>"
+
+
 class TradingSignal(Base):
-    """AI 기반 매매 신호 (일일 분석 결과)"""
+    """AI 기반 매매 신호 (Phase 5 - 최종 결과)"""
     __tablename__ = 'trading_signals'
 
     id = Column(Integer, primary_key=True)
+    analysis_run_id = Column(Integer, ForeignKey('analysis_runs.id', ondelete='CASCADE'), nullable=False, index=True)
+    tech_selection_id = Column(Integer, ForeignKey('technical_selections.id'))  # Link to technical selection
     stock_id = Column(Integer, ForeignKey('stocks.id'), nullable=False, index=True)
+
+    stock_code = Column(String(10), nullable=False, index=True)
+    company_name = Column(String(100))
+
+    # Analysis & Trade dates
     analysis_date = Column(Date, nullable=False, index=True)  # 분석 날짜
     target_trade_date = Column(Date, nullable=False, index=True)  # 매매 예정 날짜
+
+    # Prices
+    current_price = Column(Float, nullable=False)
     buy_price = Column(Float, nullable=False)  # 매수가
     target_price = Column(Float, nullable=False)  # 목표가
     stop_loss_price = Column(Float, nullable=False)  # 손절가
-    ai_confidence = Column(Integer, nullable=False)  # AI 신뢰도 (0-100)
+
+    # Performance metrics
     predicted_return = Column(Float, nullable=False)  # 예상 수익률
-    current_rsi = Column(Float)  # 현재 RSI
-    current_macd = Column(Float)  # 현재 MACD
-    current_bollinger_position = Column(String(20))  # Bollinger 위치 (upper/middle/lower)
-    market_trend = Column(String(20))  # 시장 추세 (uptrend/downtrend/range)
-    investor_flow = Column(String(20))  # 투자자 매매동향 (positive/negative/neutral)
-    sector_momentum = Column(String(20))  # 섹터 모멘텀 (strong/moderate/weak)
+    risk_reward_ratio = Column(Float)  # Target profit / Stop loss
+    ai_confidence = Column(Integer, nullable=False)  # AI 신뢰도 (0-100)
+
+    # Support/Resistance levels
+    support_level = Column(Float)
+    resistance_level = Column(Float)
+    pivot_point = Column(Float)
+    r1_level = Column(Float)
+    s1_level = Column(Float)
+    high_60d = Column(Float)
+    low_60d = Column(Float)
+
+    # Volatility
+    atr = Column(Float)
+    atr_percent = Column(Float)
+    volatility_rank = Column(String(20))  # LOW, MEDIUM, HIGH
+
+    # Technical indicators (key ones)
+    current_rsi = Column(Float)
+    current_macd = Column(Float)
+    current_bollinger_position = Column(String(20))
+
+    # Market context
+    market_trend = Column(String(20))  # 시장 추세
+    investor_flow = Column(String(20))  # 투자자 매매동향
+    sector_momentum = Column(String(20))  # 섹터 모멘텀
+
+    # AI reasoning
     ai_reasoning = Column(Text)  # AI가 선택한 이유
-    status = Column(String(20), default='pending', index=True)  # pending/executed/missed/cancelled
+
+    # Calculation details (JSON)
+    calculation_details = Column(JSON)  # {buy_premium_pct, target_method, stop_method, ...}
+
+    # Execution tracking
+    status = Column(String(20), default='pending', index=True)  # pending, executed, cancelled, expired
     executed_price = Column(Float)  # 실제 체결가
     executed_date = Column(DateTime)  # 실제 체결 날짜
+
+    # Performance tracking (filled after trade)
     actual_return = Column(Float)  # 실제 수익률
+    exit_price = Column(Float)
+    exit_time = Column(DateTime)
+    exit_reason = Column(String(50))  # target_hit, stop_hit, manual, timeout
+
     created_at = Column(DateTime, default=datetime.now, index=True)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
     # Relationships
+    analysis_run = relationship("AnalysisRun", back_populates="trading_signals")
     stock = relationship("Stock", foreign_keys=[stock_id])
 
     def __repr__(self):
-        return f"<TradingSignal(stock_id={self.stock_id}, date={self.analysis_date}, confidence={self.ai_confidence}%)>"
-
-
-class MarketSnapshot(Base):
-    """시장 현황 스냅샷 (일일 시장 분석)"""
-    __tablename__ = 'market_snapshots'
-
-    id = Column(Integer, primary_key=True)
-    snapshot_date = Column(Date, nullable=False, unique=True, index=True)  # 스냅샷 날짜
-    kospi_close = Column(Float)  # KOSPI 종가
-    kospi_change = Column(Float)  # KOSPI 일일 변화율 (%)
-    kosdaq_close = Column(Float)  # KOSDAQ 종가
-    kosdaq_change = Column(Float)  # KOSDAQ 일일 변화율 (%)
-    advance_decline_ratio = Column(Float)  # 상승/하락 종목 비율
-    foreign_flow = Column(BigInteger)  # 외국인 순매수 (KRW)
-    institution_flow = Column(BigInteger)  # 기관 순매수 (KRW)
-    retail_flow = Column(BigInteger)  # 개인 순매수 (KRW)
-    sector_performance = Column(JSON)  # 섹터별 수익률 {'IT': 1.2, 'Finance': -0.5, ...}
-    top_sectors = Column(JSON)  # 상위 섹터 ['IT', 'Semiconductors', ...]
-    market_sentiment = Column(String(20))  # 시장 심리 (bullish/bearish/neutral)
-    momentum_score = Column(Integer)  # 모멘텀 점수 (0-100)
-    volatility_index = Column(Float)  # 변동성 지수
-    created_at = Column(DateTime, default=datetime.now)
-
-    def __repr__(self):
-        return f"<MarketSnapshot(date={self.snapshot_date}, kospi={self.kospi_close}, sentiment={self.market_sentiment})>"
+        return f"<TradingSignal(code={self.stock_code}, date={self.analysis_date}, buy={self.buy_price}, target={self.target_price})>"

@@ -114,8 +114,13 @@ class MarketAnalyzer:
             # 8. 상위 섹터 선정
             top_sectors = self._get_top_sectors(sector_performance, top_n=3)
 
+            # 9. 7일 추세 데이터 수집 (AI 스크리닝을 위한 맥락 개선)
+            trend_7d = self._get_trend_7d(target_date)
+            trend_analysis = self._analyze_trend_pattern(trend_7d, kospi_data, investor_flows, market_trend)
+
             snapshot = {
                 'snapshot_date': target_date,
+                'date': target_date.isoformat(),  # ISO 형식으로 저장 (AI 프롬프트 호환)
                 'kospi_close': kospi_data['close'],
                 'kospi_change': kospi_data['change'],
                 'kosdaq_close': kosdaq_data['close'],
@@ -129,7 +134,13 @@ class MarketAnalyzer:
                 'market_sentiment': market_sentiment,
                 'sentiment_detail': sentiment_detail,
                 'momentum_score': momentum_score,
-                'volatility_index': volatility
+                'volatility_index': volatility,
+                'market_trend': market_trend,
+                'technical_rsi': technical_signals.get('rsi', 50),
+                'technical_macd_direction': technical_signals.get('macd_direction', 'NEUTRAL'),
+                'signal_convergence': technical_signals.get('convergence_score', 0.5),
+                'trend_7d': trend_7d,
+                'trend_analysis': trend_analysis
             }
 
             self.logger.info(f"시장 분석 완료: KOSPI={kospi_data['close']}, "
@@ -1284,3 +1295,152 @@ class MarketAnalyzer:
         except Exception as e:
             self.logger.error(f"❌ AI screening failed: {e}")
             raise
+
+
+    def _get_trend_7d(self, target_date: date) -> List[Dict]:
+        """
+        7일 추세 데이터 수집 (AI 스크리닝용 맥락 정보)
+
+        Args:
+            target_date: 기준 날짜
+
+        Returns:
+            list: 최근 7일의 시장 데이터
+                [
+                    {
+                        'date': '2024-10-17',
+                        'kospi_close': 2440,
+                        'kospi_change': -0.5,
+                        'foreign_flow': 12300000000,
+                        'institution_flow': 5600000000,
+                        'market_trend': 'DOWNTREND'
+                    },
+                    ...
+                ]
+        """
+        try:
+            trend_data = []
+
+            # 과거 7일 조회 (영업일 기준으로 최대 10일 소급)
+            for i in range(10):
+                check_date = target_date - timedelta(days=i)
+
+                try:
+                    # 인덱스 데이터 조회
+                    kospi_data = self._get_index_data("KOSPI", check_date)
+                    investor_flows = self._get_investor_flows(check_date)
+
+                    # 시장 추세 판단
+                    market_trend, _ = self._analyze_trend(check_date, kospi_data)
+
+                    trend_data.append({
+                        'date': check_date.isoformat(),
+                        'kospi_close': kospi_data['close'],
+                        'kospi_change': kospi_data['change'],
+                        'foreign_flow': investor_flows.get('foreign', 0),
+                        'institution_flow': investor_flows.get('institution', 0),
+                        'retail_flow': investor_flows.get('retail', 0),
+                        'market_trend': market_trend
+                    })
+
+                    # 7일 분량을 모았으면 종료
+                    if len(trend_data) >= 7:
+                        break
+
+                except Exception as e:
+                    self.logger.debug(f"Failed to get trend data for {check_date}: {e}")
+                    continue
+
+            # 역순으로 정렬 (오래된 날짜부터 최신 날짜 순서)
+            trend_data.reverse()
+
+            self.logger.info(f"7-day trend data collected: {len(trend_data)} days")
+            return trend_data
+
+        except Exception as e:
+            self.logger.warning(f"Failed to collect 7-day trend data: {e}")
+            return []
+
+    def _analyze_trend_pattern(self,
+                               trend_7d: List[Dict],
+                               today_kospi: Dict,
+                               today_investor: Dict,
+                               today_trend: str) -> Dict:
+        """
+        7일 추세 패턴 분석 (AI 스크리닝 맥락 강화)
+
+        Args:
+            trend_7d: 7일 추세 데이터
+            today_kospi: 오늘의 KOSPI 데이터
+            today_investor: 오늘의 투자자 데이터
+            today_trend: 오늘의 시장 추세
+
+        Returns:
+            dict: 트렌드 분석 결과
+                {
+                    'direction': 'UPTREND' or 'DOWNTREND' or 'RANGE',
+                    'momentum': 'ACCELERATING' or 'DECELERATING' or 'STABLE',
+                    'reversal_risk': 'HIGH' or 'MEDIUM' or 'LOW',
+                    'foreign_trend': 'SUSTAINED_BUY' or 'SUSTAINED_SELL' or 'CHANGING'
+                }
+        """
+        try:
+            if not trend_7d or len(trend_7d) < 3:
+                return {
+                    'direction': 'UNKNOWN',
+                    'momentum': 'UNKNOWN',
+                    'reversal_risk': 'UNKNOWN',
+                    'foreign_trend': 'UNKNOWN'
+                }
+
+            # 1. 추세 방향 판단 (7일 KOSPI 변화)
+            kospi_changes = [d.get('kospi_change', 0) for d in trend_7d[-7:]]
+            kospi_direction = 'UP' if np.mean(kospi_changes) > 0 else 'DOWN'
+            direction = 'UPTREND' if kospi_direction == 'UP' else 'DOWNTREND'
+
+            # 2. 모멘텀 변화 판단 (가속/둔화)
+            if len(kospi_changes) >= 2:
+                recent_momentum = np.mean(kospi_changes[-3:])  # 최근 3일
+                earlier_momentum = np.mean(kospi_changes[:-3])  # 이전 4일
+                momentum = 'ACCELERATING' if abs(recent_momentum) > abs(earlier_momentum) else 'DECELERATING'
+            else:
+                momentum = 'STABLE'
+
+            # 3. 반전 위험 판단
+            # - 상승세 약화 또는 하락세 강화 = 높은 위험
+            if kospi_direction == 'UP' and momentum == 'DECELERATING':
+                reversal_risk = 'HIGH'
+            elif kospi_direction == 'DOWN' and momentum == 'ACCELERATING':
+                reversal_risk = 'HIGH'
+            elif kospi_direction == 'UP' and momentum == 'ACCELERATING':
+                reversal_risk = 'LOW'
+            else:
+                reversal_risk = 'MEDIUM'
+
+            # 4. 외국인 투자자 추세 판단
+            foreign_flows = [d.get('foreign_flow', 0) for d in trend_7d[-7:]]
+            foreign_positive = sum(1 for f in foreign_flows if f > 0)
+            foreign_consecutive = all(f > 0 for f in foreign_flows[-3:])
+
+            if foreign_consecutive:
+                foreign_trend = 'SUSTAINED_BUY'
+            elif foreign_positive < 3:
+                foreign_trend = 'SUSTAINED_SELL'
+            else:
+                foreign_trend = 'CHANGING'
+
+            return {
+                'direction': direction,
+                'momentum': momentum,
+                'reversal_risk': reversal_risk,
+                'foreign_trend': foreign_trend
+            }
+
+        except Exception as e:
+            self.logger.debug(f"Failed to analyze trend pattern: {e}")
+            return {
+                'direction': 'UNKNOWN',
+                'momentum': 'UNKNOWN',
+                'reversal_risk': 'UNKNOWN',
+                'foreign_trend': 'UNKNOWN'
+            }

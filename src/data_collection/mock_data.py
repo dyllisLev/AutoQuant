@@ -17,7 +17,8 @@ class MockDataGenerator:
             seed: 난수 시드 (재현 가능한 데이터 생성)
         """
         np.random.seed(seed)
-        self.stock_names = {
+        # Base stocks (실제 한국 대형주 10개)
+        base_stocks = {
             '005930': '삼성전자',
             '000660': 'SK하이닉스',
             '035420': 'NAVER',
@@ -29,6 +30,12 @@ class MockDataGenerator:
             '105560': 'KB금융',
             '055550': '신한지주'
         }
+
+        # 4,359개 한국 주식 시뮬레이션 (KRX 실제 규모)
+        self.stock_names = base_stocks.copy()
+        for i in range(10, 4359):
+            code = f'{100000 + i:06d}'  # 100010 ~ 104358 형식
+            self.stock_names[code] = f'Stock{i}'
 
     def generate_stock_data(
         self,

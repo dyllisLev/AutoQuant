@@ -167,6 +167,32 @@ class AIScreener:
             # 1. Build screening prompt with market context
             prompt = self._build_screening_prompt(market_snapshot, all_stocks, sentiment_confidence)
 
+            # DEBUG: Save actual prompt for token analysis
+            try:
+                import tiktoken
+                encoder = tiktoken.get_encoding("cl100k_base")
+                token_count = len(encoder.encode(prompt))
+
+                # Count number of stocks in prompt
+                stock_count = 0
+                if 'Stocks (' in prompt:
+                    stocks_section = prompt.split('Stocks (')[1]
+                    stock_lines = [l for l in stocks_section.split('\n') if l and '|' in l and l[0].isdigit()]
+                    stock_count = len(stock_lines)
+
+                with open('/opt/AutoQuant/debug_actual_prompt.txt', 'w', encoding='utf-8') as f:
+                    f.write(f"=== ACTUAL PROMPT FOR PHASE 3 ===\n")
+                    f.write(f"Provider: {self.provider.value}\n")
+                    f.write(f"Token count (CL100K): {token_count}\n")
+                    f.write(f"Character count: {len(prompt)}\n")
+                    f.write(f"Stock data lines: {stock_count}\n")
+                    f.write(f"===\n\n")
+                    f.write(prompt)
+
+                self.logger.info(f"💾 DEBUG: Prompt saved (tokens={token_count}, stocks={stock_count}, chars={len(prompt)})")
+            except Exception as e:
+                self.logger.debug(f"Debug prompt save failed: {e}")
+
             # 2. Call AI API with retry logic
             response = self._call_ai_api_with_retry(prompt)
 
@@ -221,82 +247,45 @@ class AIScreener:
         # Format stock data (top 500 by volume to reduce context size)
         stock_data = self._format_stock_data(all_stocks)
 
-        # Build prompt based on sentiment confidence (adaptive depth)
-        if sentiment_confidence > 0.7:
-            # High confidence: Detailed analysis
-            prompt = f"""You are an expert Korean stock market analyst with 20+ years of experience in KRX market trading.
+        # Build simpler, clearer prompt
+        prompt = f"""Analyze Korean stock market and select 30-40 stocks for next-day trading.
 
 {market_context}
 
-SCREENING OBJECTIVE:
-From 4,359 Korean stocks, identify TOP 30-40 candidates with highest probability of:
-1. Positive return in next trading session ({market_snapshot.get('next_trading_date', 'tomorrow')})
-2. Strong technical and fundamental setup
-
-SELECTION CRITERIA (weighted by importance):
-1. Market Alignment (30%): Stocks moving WITH the current {market_snapshot.get('sentiment', 'UNKNOWN')} trend
-2. Momentum Strength (25%): RSI, volume action, price momentum
-3. Investor Flow Confirmation (20%): Aligned with foreign/institutional buying/selling
-4. Sector Strength (15%): In sectors outperforming the market
-5. Technical Setup (10%): Bullish patterns (support breaks, moving average crosses)
-
-STOCK DATA (Top 500 by volume - Total 4,359 stocks available):
+Stocks (500 by volume):
 {stock_data}
 
-RESPONSE REQUIREMENTS:
-Return a JSON object with:
+TASK: Select exactly 30-40 stocks that will likely increase in value tomorrow.
+Context: Consider market sentiment (including 7-day trend), RSI levels, volume, investor flows, and market momentum.
+
+For Stock Selection:
+- Focus on stocks aligned with market trend direction (uptrend vs downtrend)
+- Prefer stocks in top-performing sectors
+- Check RSI for extreme overbought/oversold conditions
+- Consider foreign investor buying patterns (institutional money flow indicator)
+- Factor in volume confirmation (higher volume = more reliable signal)
+
+Return only valid JSON (no other text):
 {{
-  "market_analysis": "Your brief market assessment (2-3 sentences)",
-  "selection_reasoning": "Why these 30-40 stocks selected (3-4 sentences)",
   "candidates": [
-    {{
-      "code": "005930",
-      "name": "삼성전자",
-      "current_price": 78200,
-      "daily_change_pct": 1.2,
-      "confidence": 85,
-      "reason": "Sector strength (IT +1.8%), foreign buying (+3.2B), RSI=58",
-      "signals": ["foreign_buying", "sector_outperform", "bullish_momentum"]
-    }},
-    ... (continue for ~40 stocks)
+    {{"code": "005930", "name": "Stock", "confidence": 75, "reason": "good setup"}},
+    ... more stocks...
   ]
 }}
 
-CRITICAL CONSTRAINTS:
-- Select EXACTLY 30-40 stocks (not more, not less)
-- All stock codes MUST exist in provided list
-- Confidence scores must be realistic (mix of 60-90, not all 90+)
-- Provide specific, actionable reasoning for EACH selection
-- Focus on next trading day opportunity, not long-term value
-"""
-        else:
-            # Low confidence: Conservative analysis, focus on safest selections
-            prompt = f"""Stock analyst: Given current market ({market_snapshot.get('sentiment', 'UNKNOWN')}),
-select 30-40 best trading candidates from provided stocks.
-
-{market_context}
-
-Criteria:
-- Market aligned
-- Strong volume
-- Technical setup
-- Foreign/Institutional buying
-
-Stocks (Top 500):
-{stock_data}
-
-Return JSON: {{
-  "analysis": "Brief assessment",
-  "candidates": [{{"code": "005930", "name": "삼성전자", "confidence": 75, "reason": "Strong setup"}}...]
-}}
-
-MUST select EXACTLY 30-40 stocks from provided list."""
+Rules:
+- Return 30-40 stocks exactly
+- Confidence 60-90 range
+- All codes from stock list above
+- Valid JSON only"""
 
         return prompt
 
     def _format_market_context(self, market_snapshot: Dict, sentiment_confidence: float) -> str:
-        """Format market context for prompt"""
-        return f"""=== TODAY'S MARKET CONTEXT ({market_snapshot.get('date', 'N/A')}) ===
+        """Format market context for prompt with 7-day trend analysis"""
+
+        # Current day's snapshot
+        context = f"""=== TODAY'S MARKET CONTEXT ({market_snapshot.get('date', 'N/A')}) ===
 
 Market Sentiment: {market_snapshot.get('sentiment', 'UNKNOWN')} (Confidence: {sentiment_confidence:.0%})
 KOSPI: {market_snapshot.get('kospi_close', 0):,.0f} ({market_snapshot.get('kospi_change', 0):+.2f}%)
@@ -317,6 +306,37 @@ Technical Signals:
 - MACD: {market_snapshot.get('technical_macd_direction', 'NEUTRAL')}
 - Signal Convergence: {market_snapshot.get('signal_convergence', 0.5):.2f}/1.0
 """
+
+        # Add 7-day trend analysis if available
+        trend_7d = market_snapshot.get('trend_7d', None)
+        if trend_7d and isinstance(trend_7d, list) and len(trend_7d) > 0:
+            context += "\n=== 7-DAY TREND ANALYSIS ===\n"
+            context += "Date|KOSPI|Change%|Investor(KRW)B|Trend\n"
+
+            for day_data in trend_7d:
+                try:
+                    day_date = day_data.get('date', 'N/A')
+                    kospi = day_data.get('kospi_close', 0)
+                    kospi_change = day_data.get('kospi_change', 0)
+                    investor = day_data.get('foreign_flow', 0) + day_data.get('institution_flow', 0)
+                    trend = day_data.get('market_trend', 'NEUTRAL')
+
+                    investor_b = investor / 1e9  # Convert to billions
+                    context += f"{day_date}|{kospi:,.0f}|{kospi_change:+.2f}%|{investor_b:+.1f}B|{trend}\n"
+                except Exception as e:
+                    self.logger.debug(f"Error formatting trend day: {e}")
+                    continue
+
+            # Add trend analysis summary
+            trend_summary = market_snapshot.get('trend_analysis', {})
+            if trend_summary:
+                context += f"\nTrend Summary:\n"
+                context += f"- Direction: {trend_summary.get('direction', 'NEUTRAL')}\n"
+                context += f"- Momentum: {trend_summary.get('momentum', 'NEUTRAL')}\n"
+                context += f"- Reversal Risk: {trend_summary.get('reversal_risk', 'UNKNOWN')}\n"
+                context += f"- Foreign Investor Trend: {trend_summary.get('foreign_trend', 'UNKNOWN')}\n"
+
+        return context
 
     def _format_stock_data(self, all_stocks: pd.DataFrame) -> str:
         """Format stock data for prompt (top 500 by volume)"""
@@ -396,50 +416,47 @@ Technical Signals:
             return self._call_google(prompt)
 
     def _call_openai(self, prompt: str) -> str:
-        """Call OpenAI GPT-4 API"""
-        # Try with max_completion_tokens first (newer models)
+        """Call OpenAI GPT-5 API using responses.create() endpoint"""
         try:
-            response = self.client.chat.completions.create(
+            # Use responses.create() API (correct for gpt-5-mini-2025-08-07)
+            # gpt-5-mini-2025-08-07 specs:
+            # - 400K context window
+            # - Uses responses.create() endpoint
+            # - Supports web_search tool
+            # - Returns Response object with output array
+            response = self.client.responses.create(
                 model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=self.config['temperature'],
-                max_completion_tokens=self.config['max_tokens'],
-                timeout=self.config['timeout']
+                input=prompt,
+                tools=[{"type": "web_search"}]
             )
+
+            # Extract response content from output array
+            # Response has output: List[ResponseItem] where each item can be reasoning, function call, or message
+            content = ""
+
+            for output_item in response.output:
+                # Extract text content from message items
+                if hasattr(output_item, 'content') and output_item.content:
+                    if isinstance(output_item.content, list):
+                        for content_item in output_item.content:
+                            if hasattr(content_item, 'text'):
+                                content += content_item.text + "\n"
+                    elif hasattr(output_item, 'text'):
+                        content += output_item.text + "\n"
+
+            content = content.strip()
+
+            # Track cost: GPT-5-mini pricing ($0.015/1K input, $0.075/1K output)
+            input_tokens = response.usage.input_tokens
+            output_tokens = response.usage.output_tokens
+            cost = (input_tokens * 0.015 + output_tokens * 0.075) / 1000
+            self.api_total_cost += cost
+
+            self.logger.info(f"OpenAI API call: {input_tokens} input + {output_tokens} output tokens (${cost:.4f}), response: {len(content)} chars")
+            return content
         except Exception as e:
-            error_str = str(e).lower()
-
-            # Fallback: try without temperature (for models that don't support it)
-            if "temperature" in error_str:
-                self.logger.debug("Falling back: removing temperature parameter")
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=[{"role": "user", "content": prompt}],
-                    max_completion_tokens=self.config['max_tokens'],
-                    timeout=self.config['timeout']
-                )
-            # Fallback: try with max_tokens for older models
-            elif "max_tokens" in error_str:
-                self.logger.debug("Falling back: using max_tokens instead of max_completion_tokens")
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=self.config['temperature'],
-                    max_tokens=self.config['max_tokens'],
-                    timeout=self.config['timeout']
-                )
-            else:
-                raise
-
-        # Track cost: GPT-4 pricing ($0.03/1K input, $0.06/1K output)
-        input_tokens = response.usage.prompt_tokens
-        output_tokens = response.usage.completion_tokens
-        cost = (input_tokens * 0.03 + output_tokens * 0.06) / 1000
-        self.api_total_cost += cost
-
-        self.logger.debug(f"OpenAI: {input_tokens} input + {output_tokens} output tokens (${cost:.4f})")
-
-        return response.choices[0].message.content
+            self.logger.error(f"OpenAI API call failed: {str(e)}")
+            raise
 
     def _call_anthropic(self, prompt: str) -> str:
         """Call Anthropic Claude API"""
@@ -478,23 +495,46 @@ Technical Signals:
         Parse AI response and extract stock candidates.
 
         Handles both JSON and text format responses.
+        Extracts JSON from markdown code blocks if present.
         """
         try:
-            # Try to parse as JSON first
-            if response.strip().startswith('{'):
-                data = json.loads(response)
+            # Clean response: extract JSON from markdown code blocks
+            cleaned_response = response.strip()
+
+            # Check for JSON in markdown code block (```json ... ```)
+            if '```' in cleaned_response:
+                import re
+                json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', cleaned_response, re.DOTALL)
+                if json_match:
+                    cleaned_response = json_match.group(1)
+
+            # Try to parse as JSON
+            if cleaned_response.startswith('{'):
+                data = json.loads(cleaned_response)
 
                 # Try multiple possible keys for candidate list
                 candidates = (data.get('candidates') or
                             data.get('selected_stocks') or
                             data.get('stocks') or
+                            data.get('results') or
                             [])
+
+                # Ensure candidates is a list
+                if isinstance(candidates, dict):
+                    candidates = list(candidates.values())
+
+                if not isinstance(candidates, list):
+                    candidates = []
             else:
                 # Fallback: parse text response
                 candidates = self._parse_text_response(response)
 
             # Validate count
-            if len(candidates) < 30 or len(candidates) > 50:
+            if len(candidates) == 0:
+                self.logger.warning(f"AI returned 0 candidates.")
+                self.logger.warning(f"Raw response length: {len(response)} chars")
+                self.logger.warning(f"Raw response: {response[:500]}")
+            elif len(candidates) < 30 or len(candidates) > 50:
                 self.logger.warning(f"AI returned {len(candidates)} candidates (expected 30-40)")
 
             return candidates
@@ -505,6 +545,10 @@ Technical Signals:
 
             # Fallback to text parsing
             return self._parse_text_response(response)
+        except Exception as e:
+            self.logger.error(f"Unexpected error during response parsing: {e}")
+            self.logger.debug(f"Response: {response[:500]}")
+            return []
 
     def _parse_text_response(self, response: str) -> List[Dict]:
         """Parse text-format response (fallback from JSON)"""

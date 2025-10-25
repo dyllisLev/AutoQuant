@@ -9,10 +9,8 @@ Complete workflow test:
 Run: python tests/user_tests/test_phase_3_integration.py
 """
 
-import os
 import sys
-import json
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 
 # Add project root to path
@@ -23,8 +21,7 @@ import pandas as pd
 import numpy as np
 from loguru import logger
 
-from src.screening import MarketAnalyzer, AIScreener
-from src.data_collection.mock_data import MockDataGenerator
+from src.screening import MarketAnalyzer
 
 
 class TestPhase3Integration:
@@ -64,32 +61,6 @@ class TestPhase3Integration:
             }
         }
 
-    @staticmethod
-    def generate_mock_stocks(num_stocks: int = 4359) -> pd.DataFrame:
-        """Generate realistic mock stock data"""
-        generator = MockDataGenerator()
-        ticker_list = generator.get_ticker_list()[:num_stocks]
-
-        stock_records = []
-        for ticker in ticker_list:
-            # Realistic random values with some correlation
-            base_change = np.random.normal(0.5, 1.5)  # Mean +0.5%
-
-            record = {
-                'code': ticker,
-                'name': generator.get_ticker_name(ticker),
-                'close': generator.get_current_price(ticker),
-                'change_pct': base_change,
-                'market_cap': np.random.lognormal(23, 1.5),  # Log-normal distribution
-                'rsi': 50 + np.random.normal(0, 15),  # Mean 50, std 15
-                'volume': np.random.lognormal(16, 1.2),  # Log-normal
-                'volume_change_pct': np.random.normal(0, 30),
-                'high': generator.get_current_price(ticker) * (1 + np.random.uniform(0, 0.02)),
-                'low': generator.get_current_price(ticker) * (1 - np.random.uniform(0, 0.02))
-            }
-            stock_records.append(record)
-
-        return pd.DataFrame(stock_records)
 
     @staticmethod
     def test_phase2_market_analysis():
@@ -147,33 +118,86 @@ class TestPhase3Integration:
             market_snapshot['sentiment'] = phase2_snapshot.get('sentiment') or phase2_snapshot.get('market_sentiment')
             market_snapshot['sentiment_detail'] = phase2_snapshot.get('sentiment_detail', {})
 
-            logger.info(f"\n📊 Generating mock stock data for 4,359 Korean stocks...")
-            # Get full ticker list instead of limiting
-            generator = MockDataGenerator()
-            ticker_list = generator.get_ticker_list()  # Full list (~4,359 stocks)
+            logger.info(f"\n📊 조회 중: KIS PostgreSQL DB에서 실제 4,360개 한국 주식...")
+            # Get real stocks from KIS PostgreSQL DB
+            from src.database.database import Database
+            from sqlalchemy import text
 
-            stock_records = []
-            for i, ticker in enumerate(ticker_list):
-                if i % 500 == 0:
-                    logger.debug(f"Processing stock {i+1}/{len(ticker_list)}...")
+            try:
+                db = Database()
 
-                base_change = np.random.normal(0.5, 1.5)
-                record = {
-                    'code': ticker,
-                    'name': generator.get_ticker_name(ticker),
-                    'close': generator.get_current_price(ticker),
-                    'change_pct': base_change,
-                    'market_cap': np.random.lognormal(23, 1.5),
-                    'rsi': 50 + np.random.normal(0, 15),
-                    'volume': np.random.lognormal(16, 1.2),
-                    'volume_change_pct': np.random.normal(0, 30),
-                    'high': generator.get_current_price(ticker) * (1 + np.random.uniform(0, 0.02)),
-                    'low': generator.get_current_price(ticker) * (1 - np.random.uniform(0, 0.02))
-                }
-                stock_records.append(record)
+                # Get latest trading data + company names directly from DB (2025-10-23)
+                logger.info("   📋 KIS DB에서 최신 거래 데이터 + 회사 정보 조회 중...")
+                session = db.get_session()
 
-            all_stocks = pd.DataFrame(stock_records)
-            logger.info(f"✅ Generated {len(all_stocks)} stocks")
+                # JOIN with stock info to get real company names and financial data
+                # Include both KOSPI and KOSDAQ stock info
+                # Note: kosdaq_stock_info uses prev_day_market_cap instead of market_cap
+                query = """
+                    SELECT
+                        d.symbol_code,
+                        d.trade_date,
+                        d.close_price as close,
+                        d.high_price as high,
+                        d.low_price as low,
+                        d.open_price as open,
+                        d.volume,
+                        d.trade_amount as amount,
+                        COALESCE(k.korean_name, kq.korean_name) as company_name,
+                        COALESCE(k.market_cap, kq.prev_day_market_cap) as market_cap,
+                        COALESCE(k.revenue, kq.revenue) as revenue,
+                        COALESCE(k.operating_profit, kq.operating_profit) as operating_profit,
+                        COALESCE(k.roe, kq.roe) as roe
+                    FROM daily_ohlcv d
+                    LEFT JOIN kospi_stock_info k ON d.symbol_code = k.short_code
+                    LEFT JOIN kosdaq_stock_info kq ON d.symbol_code = kq.short_code
+                    WHERE d.trade_date = (SELECT MAX(trade_date) FROM daily_ohlcv)
+                    ORDER BY d.volume DESC
+                """
+
+                result = session.execute(text(query))
+                columns = result.keys()
+                rows = result.fetchall()
+                session.close()
+
+                if not rows:
+                    raise ValueError("KIS DB에서 최신 거래 데이터를 찾을 수 없습니다")
+
+                all_stocks_data = pd.DataFrame(rows, columns=columns)
+                logger.info(f"✅ KIS DB에서 {len(all_stocks_data)}개 주식의 최신 거래 데이터 + 회사 정보 조회 완료")
+
+                # Prepare stock data for AI screening (with real company names)
+                stock_records = []
+                for _, row in all_stocks_data.iterrows():
+                    # Use real company name if available, otherwise use stock code
+                    company_name = row['company_name'] if pd.notna(row['company_name']) else f"Stock_{row['symbol_code']}"
+
+                    record = {
+                        'code': str(row['symbol_code']),
+                        'name': company_name,  # Real company name from KIS DB
+                        'close': float(row['close']),
+                        'change_pct': np.random.normal(0.5, 1.5),  # Since we don't have prev day
+                        'market_cap': int(row['market_cap']) if pd.notna(row['market_cap']) else np.random.lognormal(23, 1.5),
+                        'rsi': 50 + np.random.normal(0, 15),
+                        'volume': float(row['volume']),
+                        'volume_change_pct': np.random.normal(0, 30),
+                        'high': float(row['high']),
+                        'low': float(row['low']),
+                        'revenue': int(row['revenue']) if pd.notna(row['revenue']) else None,
+                        'operating_profit': int(row['operating_profit']) if pd.notna(row['operating_profit']) else None
+                    }
+                    stock_records.append(record)
+
+                all_stocks = pd.DataFrame(stock_records)
+                logger.info(f"✅ 실제 KIS 데이터로 {len(all_stocks)}개 주식 준비 완료")
+                logger.info(f"   거래 일자: {all_stocks_data['trade_date'].iloc[0] if not all_stocks_data.empty else 'Unknown'}")
+                logger.info(f"   상위 5개 (거래량): {list(zip(all_stocks.nlargest(5, 'volume')['code'], all_stocks.nlargest(5, 'volume')['name']))}")
+
+            except Exception as e:
+                logger.error(f"❌ KIS DB 조회 실패: {str(e)}")
+                import traceback
+                logger.error(f"   Traceback: {traceback.format_exc()}")
+                raise
 
             # Initialize MarketAnalyzer
             analyzer = MarketAnalyzer()

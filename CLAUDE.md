@@ -26,6 +26,40 @@ This is a **signal generation and analysis tool**, NOT a trading execution progr
 
 ---
 
+## 🔴 **CRITICAL TESTING RULES (MANDATORY)**
+
+**CLAUDE MUST FOLLOW THESE RULES AT ALL TIMES:**
+
+### Rule 1: 절대 모의 데이터를 사용하지 마세요
+- ❌ MockDataGenerator 사용 금지
+- ❌ 임의로 만든 주식 코드(100010~104358) 사용 금지
+- ✅ **반드시** KIS PostgreSQL DB에서 실제 4,359개 한국 주식 조회
+- ✅ 실제 주식 코드: 005930(삼성전자), 000660(SK하이닉스) 등 실제 종목만
+- ✅ `database.get_available_symbols_from_kis()` 사용
+
+### Rule 2: 오류는 임의대로 넘어가지 마세요
+- ❌ 오류 발생 시 무시하고 진행하지 않기
+- ❌ "일단 테스트라도 통과시키자" 마음으로 우회 금지
+- ✅ 오류가 발생하면 **반드시 사용자에게 확인 받기**
+- ✅ 원인을 파악하고 해결할 때까지 멈추기
+- ✅ DB 연결 실패 → 사용자 확인 필요
+- ✅ API 호출 실패 → 원인 파악 후 재시도
+
+### Rule 3: 진행율을 우선순위에 두지 마세요
+- ❌ "빨리 완료해야 한다"는 생각으로 타협 금지
+- ❌ 테스트 통과 > 실제 구현 의식 배제
+- ✅ **실제 구현**이 모든 우선순위의 최상위
+- ✅ 진행율이 0%라도 실제 데이터로 올바르게 구현
+- ✅ 가짜 테스트 통과 > 실제 실패 구현
+
+### Rule 4: 실제 플로우를 따라가세요
+- ✅ SYSTEM_DESIGN.md의 8-layer 플로우 정확히 따르기
+- ✅ 각 phase가 실제 데이터로 작동하는지 확인
+- ✅ 테스트 → 프로덕션 실제 동작 동일해야 함
+- ✅ "모의 테스트에서 통과했는데 실제는 안됨" 절대 금지
+
+---
+
 ## 📚 MANDATORY DOCUMENTATION (READ BEFORE CODING)
 
 **YOU MUST READ AND UNDERSTAND THESE DOCUMENTS BEFORE STARTING ANY IMPLEMENTATION:**
