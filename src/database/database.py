@@ -466,12 +466,52 @@ class Database:
         finally:
             session.close()
 
-    def get_available_symbols_from_kis(self) -> pd.DataFrame:
+    def get_available_symbols_from_kis(self) -> list:
         """
         KIS 시스템에서 사용 가능한 종목 목록 조회
 
         Returns:
-            pandas.DataFrame: 종목코드, 종목명, 시장구분
+            list: 종목코드 리스트
+        """
+        from sqlalchemy import text
+
+        session = self.get_session()
+        try:
+            query = """
+                SELECT DISTINCT symbol_code
+                FROM daily_ohlcv
+                WHERE trade_date >= CURRENT_DATE - INTERVAL '30 days'
+                ORDER BY symbol_code
+            """
+
+            result = session.execute(text(query))
+            symbols = [row[0] for row in result.fetchall()]
+
+            logger.info(f"KIS 사용 가능 종목 조회: {len(symbols)}개")
+            return symbols
+
+        except Exception as e:
+            logger.error(f"KIS 사용 가능 종목 조회 실패: {e}")
+            return []
+        finally:
+            session.close()
+
+    def get_available_symbols_count_from_kis(self) -> int:
+        """
+        KIS 시스템에서 사용 가능한 종목 수 조회
+
+        Returns:
+            int: 종목 수
+        """
+        symbols = self.get_available_symbols_from_kis()
+        return len(symbols)
+
+    def get_available_symbols_dataframe_from_kis(self) -> pd.DataFrame:
+        """
+        KIS 시스템에서 사용 가능한 종목 정보를 DataFrame으로 조회
+
+        Returns:
+            pandas.DataFrame: 종목코드, 마지막 거래일, 데이터 건수
         """
         from sqlalchemy import text
 
@@ -490,11 +530,11 @@ class Database:
             result = session.execute(text(query))
             df = pd.DataFrame(result.fetchall(), columns=['symbol_code', 'last_trade_date', 'data_count'])
 
-            logger.info(f"KIS 사용 가능 종목 조회: {len(df)}개")
+            logger.info(f"KIS 사용 가능 종목 정보 조회: {len(df)}개")
             return df
 
         except Exception as e:
-            logger.error(f"KIS 사용 가능 종목 조회 실패: {e}")
+            logger.error(f"KIS 사용 가능 종목 정보 조회 실패: {e}")
             return pd.DataFrame()
         finally:
             session.close()

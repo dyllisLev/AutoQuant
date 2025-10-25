@@ -184,7 +184,7 @@ class AnalysisRun(Base):
 
     # Error tracking
     error_message = Column(Text)
-    error_phase = Column(String(20))
+    error_phase = Column(String(50))  # Increased from 20 to accommodate longer phase names
 
     # Summary metrics
     total_stocks_analyzed = Column(Integer)
