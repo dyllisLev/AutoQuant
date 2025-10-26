@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+
+{% block title %}AI스크리닝{% endblock %}
+
+{% block content %}
+<div x-data="aiScreening()" x-init="loadData()">
+
+    <!-- Page Header -->
+    <div class="glass rounded-2xl p-6 shadow-lg mb-6">
+        <h1 class="text-3xl font-bold text-gray-800 mb-2">🤖 AI 스크리닝</h1>
+        <p class="text-gray-600">4,359개 종목 → 35개 AI 선정 후보 · 의미적 분석 기반</p>
+    </div>
+
+    <!-- Loading -->
+    <div x-show="loading" class="flex justify-center items-center h-64">
+        <div class="loading"></div>
+    </div>
+
+    <!-- Candidates List -->
+    <div x-show="!loading && candidates.length > 0" class="space-y-4">
+
+        <!-- Candidate Card -->
+        <template x-for="(candidate, index) in candidates" :key="index">
+            <div class="glass rounded-xl p-6 shadow-lg hover:shadow-xl transition-all">
+
+                <!-- Header -->
+                <div class="flex items-center justify-between mb-4">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white font-bold"
+                             x-text="candidate.rank">
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-bold text-gray-800" x-text="candidate.name"></h3>
+                            <p class="text-sm text-gray-500" x-text="candidate.code"></p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <span class="px-3 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-700"
+                              x-text="candidate.sector">
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Score & Price -->
+                <div class="grid grid-cols-2 gap-3 mb-4">
+                    <div class="bg-gradient-to-br from-purple-50 to-blue-50 rounded-lg p-4 text-center">
+                        <div class="text-xs text-gray-600 mb-1">AI 점수</div>
+                        <div class="text-3xl font-bold text-purple-600" x-text="candidate.ai_score.toFixed(1)"></div>
+                    </div>
+                    <div class="bg-white rounded-lg p-4 text-center">
+                        <div class="text-xs text-gray-500 mb-1">현재가</div>
+                        <div class="text-xl font-bold text-gray-800" x-text="formatPrice(candidate.price)"></div>
+                        <div class="text-xs text-gray-500 mt-1" x-text="formatVolume(candidate.volume)"></div>
+                    </div>
+                </div>
+
+                <!-- AI Reasoning -->
+                <div class="bg-blue-50 rounded-lg p-4">
+                    <div class="flex items-start space-x-2">
+                        <div class="text-blue-600 text-lg mt-0.5">💡</div>
+                        <div>
+                            <div class="text-sm font-semibold text-blue-800 mb-1">AI 선정 이유</div>
+                            <p class="text-sm text-blue-700 leading-relaxed" x-text="candidate.reason"></p>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </template>
+
+    </div>
+
+    <!-- Empty State -->
+    <div x-show="!loading && candidates.length === 0" class="glass rounded-xl p-12 shadow-lg text-center">
+        <div class="text-6xl mb-4">🤖</div>
+        <h3 class="text-xl font-bold text-gray-800 mb-2">AI 스크리닝 결과가 없습니다</h3>
+        <p class="text-gray-600">새로운 분석이 완료되면 여기에 표시됩니다.</p>
+    </div>
+
+</div>
+
+<script>
+function aiScreening() {
+    return {
+        candidates: [],
+        loading: false,
+        runId: null,
+
+        async loadData() {
+            this.loading = true;
+            try {
+                // Get latest run_id from dashboard
+                const dashResponse = await fetch('/api/dashboard');
+                const dashData = await dashResponse.json();
+                this.runId = dashData.run_id;
+
+                // Get AI candidates
+                const response = await fetch(`/api/ai-candidates/${this.runId}`);
+                const data = await response.json();
+                this.candidates = data.candidates || [];
+            } catch (error) {
+                console.error('Error loading AI candidates:', error);
+                alert('AI 스크리닝 데이터를 불러오는데 실패했습니다.');
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        formatPrice(num) {
+            return new Intl.NumberFormat('ko-KR').format(Math.round(num)) + '원';
+        },
+
+        formatVolume(num) {
+            if (num >= 1000000) {
+                return (num / 1000000).toFixed(1) + '백만주';
+            } else if (num >= 1000) {
+                return (num / 1000).toFixed(1) + '천주';
+            }
+            return num + '주';
+        }
+    }
+}
+</script>
+{% endblock %}

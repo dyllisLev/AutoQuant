@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+
+{% block title %}대시보드{% endblock %}
+
+{% block content %}
+<div x-data="dashboard()" x-init="loadDashboard()">
+
+    <!-- Loading State -->
+    <div x-show="loading" class="flex justify-center items-center h-64">
+        <div class="loading"></div>
+    </div>
+
+    <!-- Dashboard Content -->
+    <div x-show="!loading && data" class="space-y-6">
+
+        <!-- Header Card -->
+        <div class="glass rounded-2xl p-6 shadow-lg">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-2xl font-bold text-gray-800">최신 분석 결과</h2>
+                <span class="px-4 py-1 rounded-full text-sm font-semibold"
+                      :class="{
+                          'bg-green-100 text-green-700': data.market.sentiment === 'BULLISH',
+                          'bg-yellow-100 text-yellow-700': data.market.sentiment === 'NEUTRAL',
+                          'bg-red-100 text-red-700': data.market.sentiment === 'BEARISH'
+                      }"
+                      x-text="data.market.sentiment">
+                </span>
+            </div>
+
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="text-center p-4 bg-white rounded-xl shadow-sm">
+                    <div class="text-3xl mb-2">📅</div>
+                    <div class="text-sm text-gray-500">분석일</div>
+                    <div class="font-bold text-gray-800" x-text="data.analysis_date"></div>
+                </div>
+                <div class="text-center p-4 bg-white rounded-xl shadow-sm">
+                    <div class="text-3xl mb-2">📈</div>
+                    <div class="text-sm text-gray-500">KOSPI</div>
+                    <div class="font-bold" :class="data.market.change_pct >= 0 ? 'text-red-600' : 'text-blue-600'"
+                         x-text="formatPrice(data.market.kospi) + ' ' + formatPercent(data.market.change_pct)">
+                    </div>
+                </div>
+                <div class="text-center p-4 bg-white rounded-xl shadow-sm">
+                    <div class="text-3xl mb-2">🎯</div>
+                    <div class="text-sm text-gray-500">목표거래일</div>
+                    <div class="font-bold text-gray-800" x-text="data.target_date"></div>
+                </div>
+                <div class="text-center p-4 bg-white rounded-xl shadow-sm">
+                    <div class="text-3xl mb-2">💰</div>
+                    <div class="text-sm text-gray-500">매매신호</div>
+                    <div class="font-bold text-blue-600" x-text="data.stats.final_signals + '개'"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stats Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <!-- Total Stocks -->
+            <div class="glass rounded-xl p-6 shadow-lg card-hover cursor-pointer">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold text-gray-700">전체 종목 분석</h3>
+                    <span class="text-3xl">📊</span>
+                </div>
+                <div class="text-4xl font-bold text-gray-800 mb-2" x-text="formatNumber(data.stats.total_stocks)"></div>
+                <div class="text-sm text-gray-500">개 종목 스캔 완료</div>
+                <div class="mt-4 h-2 bg-gray-200 rounded-full overflow-hidden">
+                    <div class="h-full bg-gradient-to-r from-blue-500 to-blue-600" style="width: 100%"></div>
+                </div>
+            </div>
+
+            <!-- AI Candidates -->
+            <div class="glass rounded-xl p-6 shadow-lg card-hover cursor-pointer" @click="window.location.href='/ai-screening'">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold text-gray-700">AI 선정 종목</h3>
+                    <span class="text-3xl">🤖</span>
+                </div>
+                <div class="text-4xl font-bold text-purple-600 mb-2" x-text="data.stats.ai_candidates"></div>
+                <div class="text-sm text-gray-500">
+                    <span>스크리닝 비율: </span>
+                    <span class="font-semibold" x-text="((data.stats.ai_candidates / data.stats.total_stocks) * 100).toFixed(2) + '%'"></span>
+                </div>
+                <div class="mt-4 h-2 bg-gray-200 rounded-full overflow-hidden">
+                    <div class="h-full bg-gradient-to-r from-purple-500 to-purple-600"
+                         :style="`width: ${(data.stats.ai_candidates / data.stats.total_stocks) * 100}%`"></div>
+                </div>
+            </div>
+
+            <!-- Final Signals -->
+            <div class="glass rounded-xl p-6 shadow-lg card-hover cursor-pointer" @click="window.location.href='/signals'">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold text-gray-700">최종 매매신호</h3>
+                    <span class="text-3xl">🎯</span>
+                </div>
+                <div class="text-4xl font-bold text-green-600 mb-2" x-text="data.stats.final_signals"></div>
+                <div class="text-sm text-gray-500">
+                    <span>선정률: </span>
+                    <span class="font-semibold" x-text="((data.stats.final_signals / data.stats.ai_candidates) * 100).toFixed(2) + '%'"></span>
+                </div>
+                <div class="mt-4 h-2 bg-gray-200 rounded-full overflow-hidden">
+                    <div class="h-full bg-gradient-to-r from-green-500 to-green-600"
+                         :style="`width: ${(data.stats.final_signals / data.stats.ai_candidates) * 100}%`"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Analysis Funnel Visualization -->
+        <div class="glass rounded-xl p-6 shadow-lg">
+            <h3 class="text-xl font-bold text-gray-800 mb-6">분석 플로우</h3>
+            <div class="space-y-4">
+                <!-- Stage 1 -->
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm font-medium text-gray-600">1️⃣ 전체 종목 스캔</span>
+                        <span class="text-sm font-bold text-gray-800" x-text="formatNumber(data.stats.total_stocks) + '개'"></span>
+                    </div>
+                    <div class="h-8 bg-blue-500 rounded-lg flex items-center justify-center text-white font-medium">
+                        100%
+                    </div>
+                </div>
+
+                <!-- Arrow -->
+                <div class="text-center text-2xl text-gray-400">⬇️</div>
+
+                <!-- Stage 2 -->
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm font-medium text-gray-600">2️⃣ AI 스크리닝</span>
+                        <span class="text-sm font-bold text-purple-600" x-text="data.stats.ai_candidates + '개'"></span>
+                    </div>
+                    <div class="h-8 bg-purple-500 rounded-lg flex items-center justify-center text-white font-medium"
+                         :style="`width: ${(data.stats.ai_candidates / data.stats.total_stocks) * 100}%`"
+                         x-text="((data.stats.ai_candidates / data.stats.total_stocks) * 100).toFixed(1) + '%'">
+                    </div>
+                </div>
+
+                <!-- Arrow -->
+                <div class="text-center text-2xl text-gray-400">⬇️</div>
+
+                <!-- Stage 3 -->
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm font-medium text-gray-600">3️⃣ 기술적 분석</span>
+                        <span class="text-sm font-bold text-orange-600" x-text="data.stats.technical_picks + '개'"></span>
+                    </div>
+                    <div class="h-8 bg-orange-500 rounded-lg flex items-center justify-center text-white font-medium"
+                         :style="`width: ${(data.stats.technical_picks / data.stats.total_stocks) * 100}%`"
+                         x-text="((data.stats.technical_picks / data.stats.total_stocks) * 100).toFixed(2) + '%'">
+                    </div>
+                </div>
+
+                <!-- Arrow -->
+                <div class="text-center text-2xl text-gray-400">⬇️</div>
+
+                <!-- Stage 4 -->
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm font-medium text-gray-600">4️⃣ 최종 매매신호 (R/R 2.0+)</span>
+                        <span class="text-sm font-bold text-green-600" x-text="data.stats.final_signals + '개'"></span>
+                    </div>
+                    <div class="h-8 bg-green-500 rounded-lg flex items-center justify-center text-white font-medium"
+                         :style="`width: ${(data.stats.final_signals / data.stats.total_stocks) * 100}%`"
+                         x-text="((data.stats.final_signals / data.stats.total_stocks) * 100).toFixed(3) + '%'">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <a href="/signals" class="glass rounded-xl p-6 shadow-lg hover:shadow-xl transition-all flex items-center justify-between group">
+                <div>
+                    <h3 class="text-lg font-semibold text-gray-800 mb-2">매매신호 보기</h3>
+                    <p class="text-sm text-gray-600">R/R 2.0 이상 보장 신호 확인</p>
+                </div>
+                <div class="text-4xl group-hover:scale-110 transition-transform">💰</div>
+            </a>
+
+            <a href="/market" class="glass rounded-xl p-6 shadow-lg hover:shadow-xl transition-all flex items-center justify-between group">
+                <div>
+                    <h3 class="text-lg font-semibold text-gray-800 mb-2">시장 분석</h3>
+                    <p class="text-sm text-gray-600">5-factor 모멘텀 및 센티먼트</p>
+                </div>
+                <div class="text-4xl group-hover:scale-110 transition-transform">🌐</div>
+            </a>
+        </div>
+
+    </div>
+
+</div>
+
+<script>
+function dashboard() {
+    return {
+        data: null,
+        loading: false,
+
+        async loadDashboard() {
+            this.loading = true;
+            try {
+                const response = await fetch('/api/dashboard');
+                this.data = await response.json();
+            } catch (error) {
+                console.error('Error loading dashboard:', error);
+                alert('데이터를 불러오는데 실패했습니다.');
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        formatNumber(num) {
+            return new Intl.NumberFormat('ko-KR').format(num);
+        },
+
+        formatPrice(num) {
+            return this.formatNumber(num);
+        },
+
+        formatPercent(num) {
+            return `${num >= 0 ? '+' : ''}${num.toFixed(2)}%`;
+        }
+    }
+}
+</script>
+{% endblock %}

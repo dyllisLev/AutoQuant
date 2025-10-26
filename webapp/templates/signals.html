@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+
+{% block title %}매매신호{% endblock %}
+
+{% block content %}
+<div x-data="signals()" x-init="loadSignals()">
+
+    <!-- Page Header -->
+    <div class="glass rounded-2xl p-6 shadow-lg mb-6">
+        <h1 class="text-3xl font-bold text-gray-800 mb-2">💰 매매신호</h1>
+        <p class="text-gray-600">R/R 비율 2.0 이상 보장 · AI + 기술적 분석 기반</p>
+    </div>
+
+    <!-- Loading -->
+    <div x-show="loading" class="flex justify-center items-center h-64">
+        <div class="loading"></div>
+    </div>
+
+    <!-- Signals List -->
+    <div x-show="!loading && signals.length > 0" class="space-y-4">
+
+        <!-- Signal Card -->
+        <template x-for="(signal, index) in signals" :key="index">
+            <div class="glass rounded-xl p-6 shadow-lg hover:shadow-xl transition-all">
+
+                <!-- Header -->
+                <div class="flex items-center justify-between mb-4">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold text-lg"
+                             x-text="index + 1">
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-bold text-gray-800" x-text="signal.name"></h3>
+                            <p class="text-sm text-gray-500" x-text="signal.code"></p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <span class="px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700"
+                              x-text="signal.sector">
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Price Info (Mobile Optimized) -->
+                <div class="grid grid-cols-3 gap-3 mb-4">
+                    <div class="bg-white rounded-lg p-3 text-center">
+                        <div class="text-xs text-gray-500 mb-1">매수가</div>
+                        <div class="text-lg font-bold text-blue-600" x-text="formatPrice(signal.buy)"></div>
+                    </div>
+                    <div class="bg-white rounded-lg p-3 text-center">
+                        <div class="text-xs text-gray-500 mb-1">목표가</div>
+                        <div class="text-lg font-bold text-green-600" x-text="formatPrice(signal.target)"></div>
+                    </div>
+                    <div class="bg-white rounded-lg p-3 text-center">
+                        <div class="text-xs text-gray-500 mb-1">손절가</div>
+                        <div class="text-lg font-bold text-red-600" x-text="formatPrice(signal.stop)"></div>
+                    </div>
+                </div>
+
+                <!-- Profit/Loss Info -->
+                <div class="grid grid-cols-2 gap-3 mb-4">
+                    <div class="bg-green-50 rounded-lg p-3">
+                        <div class="flex items-center justify-between">
+                            <span class="text-sm text-green-700">기대수익</span>
+                            <span class="text-xl font-bold text-green-600" x-text="formatPercent(signal.return_pct)"></span>
+                        </div>
+                        <div class="text-xs text-green-600 mt-1" x-text="'+' + formatPrice(signal.profit_amt)"></div>
+                    </div>
+                    <div class="bg-red-50 rounded-lg p-3">
+                        <div class="flex items-center justify-between">
+                            <span class="text-sm text-red-700">최대손실</span>
+                            <span class="text-xl font-bold text-red-600" x-text="'-' + formatPercent((signal.loss_amt / signal.buy) * 100)"></span>
+                        </div>
+                        <div class="text-xs text-red-600 mt-1" x-text="'-' + formatPrice(signal.loss_amt)"></div>
+                    </div>
+                </div>
+
+                <!-- R/R Ratio & Scores -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                    <div class="bg-gradient-to-br from-purple-50 to-blue-50 rounded-lg p-3 text-center">
+                        <div class="text-xs text-gray-600 mb-1">R/R 비율</div>
+                        <div class="text-2xl font-bold text-purple-600" x-text="signal.rr_ratio.toFixed(2)"></div>
+                    </div>
+                    <div class="bg-gradient-to-br from-blue-50 to-cyan-50 rounded-lg p-3 text-center">
+                        <div class="text-xs text-gray-600 mb-1">AI 신뢰도</div>
+                        <div class="text-2xl font-bold text-blue-600" x-text="signal.ai_conf.toFixed(0) + '%'"></div>
+                    </div>
+                    <div class="bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg p-3 text-center">
+                        <div class="text-xs text-gray-600 mb-1">기술점수</div>
+                        <div class="text-2xl font-bold text-green-600" x-text="signal.tech_score.toFixed(0)"></div>
+                    </div>
+                    <div class="bg-gradient-to-br from-gray-50 to-slate-50 rounded-lg p-3 text-center">
+                        <div class="text-xs text-gray-600 mb-1">상태</div>
+                        <div class="text-lg font-semibold" :class="{
+                            'text-green-600': signal.status === 'pending',
+                            'text-blue-600': signal.status === 'executed',
+                            'text-gray-600': signal.status === 'cancelled'
+                        }" x-text="signal.status === 'pending' ? '대기' : signal.status === 'executed' ? '실행' : '취소'">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Visual Price Range Bar -->
+                <div class="bg-white rounded-lg p-4">
+                    <div class="text-sm text-gray-600 mb-3">가격 구간</div>
+                    <div class="relative h-8 bg-gradient-to-r from-red-200 via-gray-200 to-green-200 rounded-full overflow-hidden">
+                        <!-- Stop Loss Marker -->
+                        <div class="absolute left-0 top-0 h-full flex items-center" :style="`width: 33.33%`">
+                            <div class="w-1 h-full bg-red-600"></div>
+                            <span class="absolute -bottom-6 text-xs text-red-600 font-medium" style="left: -20px;">손절</span>
+                        </div>
+                        <!-- Buy Price Marker -->
+                        <div class="absolute top-0 h-full flex items-center" :style="`left: 50%`">
+                            <div class="w-1 h-full bg-blue-600"></div>
+                            <span class="absolute -bottom-6 text-xs text-blue-600 font-medium" style="left: -20px;">매수</span>
+                        </div>
+                        <!-- Target Price Marker -->
+                        <div class="absolute right-0 top-0 h-full flex items-center" :style="`width: 33.33%`">
+                            <div class="absolute right-0 w-1 h-full bg-green-600"></div>
+                            <span class="absolute -bottom-6 text-xs text-green-600 font-medium" style="right: -20px;">목표</span>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </template>
+
+    </div>
+
+    <!-- Empty State -->
+    <div x-show="!loading && signals.length === 0" class="glass rounded-xl p-12 shadow-lg text-center">
+        <div class="text-6xl mb-4">📭</div>
+        <h3 class="text-xl font-bold text-gray-800 mb-2">매매신호가 없습니다</h3>
+        <p class="text-gray-600">새로운 분석이 완료되면 여기에 표시됩니다.</p>
+    </div>
+
+</div>
+
+<script>
+function signals() {
+    return {
+        signals: [],
+        loading: false,
+
+        async loadSignals() {
+            this.loading = true;
+            try {
+                const response = await fetch('/api/signals');
+                const data = await response.json();
+                this.signals = data.signals || [];
+            } catch (error) {
+                console.error('Error loading signals:', error);
+                alert('매매신호를 불러오는데 실패했습니다.');
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        formatPrice(num) {
+            return new Intl.NumberFormat('ko-KR').format(Math.round(num)) + '원';
+        },
+
+        formatPercent(num) {
+            return `${num >= 0 ? '+' : ''}${num.toFixed(2)}%`;
+        }
+    }
+}
+</script>
+{% endblock %}

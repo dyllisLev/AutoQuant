@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+
+{% block title %}시장분석{% endblock %}
+
+{% block content %}
+<div x-data="marketAnalysis()" x-init="loadData()">
+
+    <!-- Page Header -->
+    <div class="glass rounded-2xl p-6 shadow-lg mb-6">
+        <h1 class="text-3xl font-bold text-gray-800 mb-2">🌐 시장 분석</h1>
+        <p class="text-gray-600">5-factor 모멘텀 · 4-signal 센티먼트 분석</p>
+    </div>
+
+    <!-- Loading -->
+    <div x-show="loading" class="flex justify-center items-center h-64">
+        <div class="loading"></div>
+    </div>
+
+    <!-- Market Data -->
+    <div x-show="!loading && marketData" class="space-y-6">
+
+        <!-- Market Summary -->
+        <div class="glass rounded-xl p-6 shadow-lg">
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="text-center p-4 bg-white rounded-xl shadow-sm">
+                    <div class="text-3xl mb-2">📅</div>
+                    <div class="text-sm text-gray-500">분석일</div>
+                    <div class="font-bold text-gray-800" x-text="marketData.date"></div>
+                </div>
+                <div class="text-center p-4 bg-white rounded-xl shadow-sm">
+                    <div class="text-3xl mb-2">📈</div>
+                    <div class="text-sm text-gray-500">KOSPI</div>
+                    <div class="font-bold" :class="marketData.kospi.change_pct >= 0 ? 'text-red-600' : 'text-blue-600'"
+                         x-text="formatNumber(marketData.kospi.close) + ' (' + formatPercent(marketData.kospi.change_pct) + ')'">
+                    </div>
+                </div>
+                <div class="text-center p-4 bg-white rounded-xl shadow-sm">
+                    <div class="text-3xl mb-2">🎯</div>
+                    <div class="text-sm text-gray-500">시장 센티먼트</div>
+                    <div class="font-bold" :class="{
+                        'text-green-600': marketData.sentiment === 'BULLISH',
+                        'text-yellow-600': marketData.sentiment === 'NEUTRAL',
+                        'text-red-600': marketData.sentiment === 'BEARISH'
+                    }" x-text="marketData.sentiment">
+                    </div>
+                </div>
+                <div class="text-center p-4 bg-white rounded-xl shadow-sm">
+                    <div class="text-3xl mb-2">📊</div>
+                    <div class="text-sm text-gray-500">모멘텀 점수</div>
+                    <div class="font-bold text-purple-600" x-text="marketData.momentum.toFixed(1)"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Investor Flows -->
+        <div class="glass rounded-xl p-6 shadow-lg">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">💰 투자자별 순매수</h3>
+            <div class="space-y-4">
+                <!-- Individual -->
+                <div>
+                    <div class="flex justify-between text-sm mb-2">
+                        <span class="text-gray-600">개인</span>
+                        <span class="font-bold" :class="marketData.investors.individual >= 0 ? 'text-red-600' : 'text-blue-600'"
+                              x-text="formatMoney(marketData.investors.individual)">
+                        </span>
+                    </div>
+                    <div class="h-3 bg-gray-200 rounded-full overflow-hidden">
+                        <div class="h-full rounded-full"
+                             :class="marketData.investors.individual >= 0 ? 'bg-red-500' : 'bg-blue-500'"
+                             :style="`width: ${Math.abs(marketData.investors.individual / getMaxInvestor() * 100)}%`">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Foreigner -->
+                <div>
+                    <div class="flex justify-between text-sm mb-2">
+                        <span class="text-gray-600">외국인</span>
+                        <span class="font-bold" :class="marketData.investors.foreigner >= 0 ? 'text-red-600' : 'text-blue-600'"
+                              x-text="formatMoney(marketData.investors.foreigner)">
+                        </span>
+                    </div>
+                    <div class="h-3 bg-gray-200 rounded-full overflow-hidden">
+                        <div class="h-full rounded-full"
+                             :class="marketData.investors.foreigner >= 0 ? 'bg-red-500' : 'bg-blue-500'"
+                             :style="`width: ${Math.abs(marketData.investors.foreigner / getMaxInvestor() * 100)}%`">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Institution -->
+                <div>
+                    <div class="flex justify-between text-sm mb-2">
+                        <span class="text-gray-600">기관</span>
+                        <span class="font-bold" :class="marketData.investors.institution >= 0 ? 'text-red-600' : 'text-blue-600'"
+                              x-text="formatMoney(marketData.investors.institution)">
+                        </span>
+                    </div>
+                    <div class="h-3 bg-gray-200 rounded-full overflow-hidden">
+                        <div class="h-full rounded-full"
+                             :class="marketData.investors.institution >= 0 ? 'bg-red-500' : 'bg-blue-500'"
+                             :style="`width: ${Math.abs(marketData.investors.institution / getMaxInvestor() * 100)}%`">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Market Breadth -->
+        <div class="glass rounded-xl p-6 shadow-lg">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">📊 시장 폭</h3>
+            <div class="grid grid-cols-3 gap-3">
+                <div class="bg-red-50 rounded-lg p-4 text-center">
+                    <div class="text-3xl mb-2">📈</div>
+                    <div class="text-2xl font-bold text-red-600" x-text="marketData.market_breadth.advancing"></div>
+                    <div class="text-sm text-gray-600">상승</div>
+                </div>
+                <div class="bg-blue-50 rounded-lg p-4 text-center">
+                    <div class="text-3xl mb-2">📉</div>
+                    <div class="text-2xl font-bold text-blue-600" x-text="marketData.market_breadth.declining"></div>
+                    <div class="text-sm text-gray-600">하락</div>
+                </div>
+                <div class="bg-gray-50 rounded-lg p-4 text-center">
+                    <div class="text-3xl mb-2">➖</div>
+                    <div class="text-2xl font-bold text-gray-600" x-text="marketData.market_breadth.unchanged"></div>
+                    <div class="text-sm text-gray-600">보합</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sector Analysis -->
+        <div x-show="marketData.sector_analysis" class="glass rounded-xl p-6 shadow-lg">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">🏭 섹터 분석</h3>
+            <div class="bg-blue-50 rounded-lg p-4">
+                <pre class="text-sm text-blue-900 whitespace-pre-wrap font-mono" x-text="marketData.sector_analysis"></pre>
+            </div>
+        </div>
+
+        <!-- Analysis Summary -->
+        <div x-show="marketData.summary" class="glass rounded-xl p-6 shadow-lg">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">📝 분석 요약</h3>
+            <div class="bg-green-50 rounded-lg p-4">
+                <p class="text-sm text-green-900 leading-relaxed whitespace-pre-wrap" x-text="marketData.summary"></p>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Empty State -->
+    <div x-show="!loading && !marketData" class="glass rounded-xl p-12 shadow-lg text-center">
+        <div class="text-6xl mb-4">🌐</div>
+        <h3 class="text-xl font-bold text-gray-800 mb-2">시장 분석 데이터가 없습니다</h3>
+        <p class="text-gray-600">새로운 분석이 완료되면 여기에 표시됩니다.</p>
+    </div>
+
+</div>
+
+<script>
+function marketAnalysis() {
+    return {
+        marketData: null,
+        loading: false,
+        runId: null,
+
+        async loadData() {
+            this.loading = true;
+            try {
+                // Get latest run_id from dashboard
+                const dashResponse = await fetch('/api/dashboard');
+                const dashData = await dashResponse.json();
+                this.runId = dashData.run_id;
+
+                // Get market data
+                const response = await fetch(`/api/market/${this.runId}`);
+                this.marketData = await response.json();
+            } catch (error) {
+                console.error('Error loading market data:', error);
+                alert('시장 분석 데이터를 불러오는데 실패했습니다.');
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        formatNumber(num) {
+            return new Intl.NumberFormat('ko-KR').format(num);
+        },
+
+        formatPercent(num) {
+            return `${num >= 0 ? '+' : ''}${num.toFixed(2)}%`;
+        },
+
+        formatMoney(num) {
+            const absNum = Math.abs(num);
+            if (absNum >= 100000000) {
+                return `${num >= 0 ? '+' : '-'}${(absNum / 100000000).toFixed(0)}억`;
+            } else if (absNum >= 10000) {
+                return `${num >= 0 ? '+' : '-'}${(absNum / 10000).toFixed(0)}만`;
+            }
+            return `${num >= 0 ? '+' : ''}${num}`;
+        },
+
+        getMaxInvestor() {
+            if (!this.marketData) return 1;
+            const values = [
+                Math.abs(this.marketData.investors.individual),
+                Math.abs(this.marketData.investors.foreigner),
+                Math.abs(this.marketData.investors.institution)
+            ];
+            return Math.max(...values) || 1;
+        }
+    }
+}
+</script>
+{% endblock %}

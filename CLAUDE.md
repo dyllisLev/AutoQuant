@@ -21,8 +21,11 @@ This is a **signal generation and analysis tool**, NOT a trading execution progr
 **Status**:
 - ✅ Phase 1: Database schema complete (TradingSignal, MarketSnapshot tables)
 - ✅ Phase 2: Market analysis with comprehensive momentum analysis (COMPLETE)
-- 🔄 Phase 3: AI-based stock screening (next)
-- ⏳ Phases 4-6: Technical screening, price calculation, daily execution
+- ✅ Phase 3: AI-based stock screening (COMPLETE - 35 candidates with GPT-4)
+- ✅ Phase 4: Technical screening (COMPLETE - 5-factor scoring system)
+- ✅ Phase 5: Trading price calculation (COMPLETE - R/R 2.0 guaranteed signals)
+- ✅ Phase 6: Daily execution script (COMPLETE - daily_analysis.py)
+- ✅ **Web Dashboard**: Responsive mobile/desktop web app (COMPLETE - http://localhost:5000)
 
 ---
 
@@ -134,10 +137,22 @@ This is a **signal generation and analysis tool**, NOT a trading execution progr
    - Stores in TradingSignal table with: buy price, target price, stop-loss, confidence, prediction
    - External trader reads signals and executes trades
 
-**6. Database Extensions (Phase 1 FIRST)**
-   - Must add TradingSignal table (stock_id, buy_price, target_price, stop_loss_price, ai_confidence, predicted_return, status, ...)
-   - Must add MarketSnapshot table (date, kospi_close, investor_flows, sector_performance, market_trend, sentiment, ...)
-   - Both required for full system operation
+**6. Database Extensions (Phase 1 COMPLETE)**
+   - ✅ TradingSignal table (stock_id, buy_price, target_price, stop_loss_price, ai_confidence, predicted_return, status, ...)
+   - ✅ MarketSnapshot table (date, kospi_close, investor_flows, sector_performance, market_trend, sentiment, ...)
+   - ✅ Both tables operational and integrated
+
+**7. Web Dashboard (COMPLETE)**
+   - **URL**: http://localhost:5000 (http://192.168.0.77:5000 for network access)
+   - **Backend**: Flask 3.1.2 with 6 API endpoints
+   - **Frontend**: Responsive design (Tailwind CSS + Alpine.js)
+   - **Features**:
+     - 6 pages: Dashboard, Trading Signals, AI Screening, Technical Analysis, Market Analysis, History
+     - Mobile-responsive (< 1024px: bottom nav, >= 1024px: top menu)
+     - Real-time data from PostgreSQL
+     - Glass morphism UI design
+   - **Access**: Mobile and desktop browsers
+   - **Server**: `python3 webapp/app_new.py` (runs on port 5000)
 
 ---
 
@@ -180,19 +195,25 @@ python tests/user_tests/test_02_daily_ohlcv.py
 
 ### Running the Application
 ```bash
-# Start web dashboard
+# Start web dashboard (NEW - responsive mobile/desktop UI)
 cd webapp
-python app.py
-# Access at http://localhost:5000
+python app_new.py
+# Access at http://localhost:5000 (local) or http://192.168.0.77:5000 (network)
+
+# Or use the startup script
+./webapp/start_webapp.sh
+
+# Run daily analysis (Phase 1-5: generates 3-5 trading signals)
+python scripts/daily_analysis.py
 
 # Collect real data (requires network access)
 python scripts/collect_data.py
 
-# Demo with mock data
-python scripts/demo_with_mock_data.py
-
 # Check network connectivity
 python scripts/check_required_domains.py
+
+# Restart web server
+./restart_webapp.sh
 ```
 
 ## Architecture

@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+
+{% block title %}기술적분석{% endblock %}
+
+{% block content %}
+<div x-data="technicalAnalysis()" x-init="loadData()">
+
+    <!-- Page Header -->
+    <div class="glass rounded-2xl p-6 shadow-lg mb-6">
+        <h1 class="text-3xl font-bold text-gray-800 mb-2">📈 기술적 분석</h1>
+        <p class="text-gray-600">35개 후보 → 5개 기술적 선정 · 5-factor 정량 분석</p>
+    </div>
+
+    <!-- Loading -->
+    <div x-show="loading" class="flex justify-center items-center h-64">
+        <div class="loading"></div>
+    </div>
+
+    <!-- Selections List -->
+    <div x-show="!loading && selections.length > 0" class="space-y-4">
+
+        <!-- Selection Card -->
+        <template x-for="(selection, index) in selections" :key="index">
+            <div class="glass rounded-xl p-6 shadow-lg hover:shadow-xl transition-all">
+
+                <!-- Header -->
+                <div class="flex items-center justify-between mb-4">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-10 h-10 rounded-full bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center text-white font-bold"
+                             x-text="selection.rank">
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-bold text-gray-800" x-text="selection.name"></h3>
+                            <p class="text-sm text-gray-500" x-text="selection.code"></p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-xs text-gray-500">현재가</div>
+                        <div class="text-lg font-bold text-gray-800" x-text="formatPrice(selection.price)"></div>
+                    </div>
+                </div>
+
+                <!-- Total Score -->
+                <div class="bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg p-4 mb-4 text-center">
+                    <div class="text-sm text-gray-600 mb-1">종합 기술점수</div>
+                    <div class="text-4xl font-bold text-green-600" x-text="selection.scores.total.toFixed(1)"></div>
+                    <div class="text-xs text-gray-500 mt-1">100점 만점</div>
+                </div>
+
+                <!-- 5-Factor Scores -->
+                <div class="space-y-3 mb-4">
+                    <!-- SMA Score -->
+                    <div>
+                        <div class="flex justify-between text-sm mb-1">
+                            <span class="text-gray-600">📊 이동평균 (SMA)</span>
+                            <span class="font-semibold text-gray-800" x-text="selection.scores.sma.toFixed(1)"></span>
+                        </div>
+                        <div class="h-2 bg-gray-200 rounded-full overflow-hidden">
+                            <div class="h-full bg-blue-500 rounded-full" :style="`width: ${selection.scores.sma}%`"></div>
+                        </div>
+                    </div>
+
+                    <!-- RSI Score -->
+                    <div>
+                        <div class="flex justify-between text-sm mb-1">
+                            <span class="text-gray-600">⚡ 상대강도 (RSI)</span>
+                            <span class="font-semibold text-gray-800" x-text="selection.scores.rsi.toFixed(1)"></span>
+                        </div>
+                        <div class="h-2 bg-gray-200 rounded-full overflow-hidden">
+                            <div class="h-full bg-purple-500 rounded-full" :style="`width: ${selection.scores.rsi}%`"></div>
+                        </div>
+                    </div>
+
+                    <!-- MACD Score -->
+                    <div>
+                        <div class="flex justify-between text-sm mb-1">
+                            <span class="text-gray-600">📈 MACD</span>
+                            <span class="font-semibold text-gray-800" x-text="selection.scores.macd.toFixed(1)"></span>
+                        </div>
+                        <div class="h-2 bg-gray-200 rounded-full overflow-hidden">
+                            <div class="h-full bg-green-500 rounded-full" :style="`width: ${selection.scores.macd}%`"></div>
+                        </div>
+                    </div>
+
+                    <!-- BB Score -->
+                    <div>
+                        <div class="flex justify-between text-sm mb-1">
+                            <span class="text-gray-600">📉 볼린저밴드 (BB)</span>
+                            <span class="font-semibold text-gray-800" x-text="selection.scores.bb.toFixed(1)"></span>
+                        </div>
+                        <div class="h-2 bg-gray-200 rounded-full overflow-hidden">
+                            <div class="h-full bg-orange-500 rounded-full" :style="`width: ${selection.scores.bb}%`"></div>
+                        </div>
+                    </div>
+
+                    <!-- Volume Score -->
+                    <div>
+                        <div class="flex justify-between text-sm mb-1">
+                            <span class="text-gray-600">💪 거래량</span>
+                            <span class="font-semibold text-gray-800" x-text="selection.scores.volume.toFixed(1)"></span>
+                        </div>
+                        <div class="h-2 bg-gray-200 rounded-full overflow-hidden">
+                            <div class="h-full bg-red-500 rounded-full" :style="`width: ${selection.scores.volume}%`"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Selection Reason -->
+                <div class="bg-green-50 rounded-lg p-4">
+                    <div class="flex items-start space-x-2">
+                        <div class="text-green-600 text-lg mt-0.5">✅</div>
+                        <div>
+                            <div class="text-sm font-semibold text-green-800 mb-1">선정 이유</div>
+                            <p class="text-sm text-green-700 leading-relaxed" x-text="selection.reason"></p>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </template>
+
+    </div>
+
+    <!-- Empty State -->
+    <div x-show="!loading && selections.length === 0" class="glass rounded-xl p-12 shadow-lg text-center">
+        <div class="text-6xl mb-4">📈</div>
+        <h3 class="text-xl font-bold text-gray-800 mb-2">기술적 분석 결과가 없습니다</h3>
+        <p class="text-gray-600">새로운 분석이 완료되면 여기에 표시됩니다.</p>
+    </div>
+
+</div>
+
+<script>
+function technicalAnalysis() {
+    return {
+        selections: [],
+        loading: false,
+        runId: null,
+
+        async loadData() {
+            this.loading = true;
+            try {
+                // Get latest run_id from dashboard
+                const dashResponse = await fetch('/api/dashboard');
+                const dashData = await dashResponse.json();
+                this.runId = dashData.run_id;
+
+                // Get technical selections
+                const response = await fetch(`/api/technical/${this.runId}`);
+                const data = await response.json();
+                this.selections = data.selections || [];
+            } catch (error) {
+                console.error('Error loading technical selections:', error);
+                alert('기술적 분석 데이터를 불러오는데 실패했습니다.');
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        formatPrice(num) {
+            return new Intl.NumberFormat('ko-KR').format(Math.round(num)) + '원';
+        }
+    }
+}
+</script>
+{% endblock %}
