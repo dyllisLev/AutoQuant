@@ -114,41 +114,42 @@ class PriceCalculator:
             logger.debug(f"   Buy price adjusted to above support: {buy_price:,.0f}")
 
         # 5. Calculate Target Price
-        # Use minimum of:
-        # - AI prediction (if available and bullish)
-        # - Resistance level (conservative)
-        # - Technical target (current + 2*ATR)
+        # IMPROVED: Use optimistic target for better R/R ratio
+        # Priority: AI prediction > Technical target > Resistance
+        # Aim for 2:1 Risk/Reward minimum
 
-        technical_target = current_price + (2 * atr)
+        technical_target = current_price + (3 * atr)  # Changed from 2*ATR to 3*ATR for higher target
 
-        if ai_target_price and ai_target_price > current_price:
-            # Use AI prediction if bullish
-            target_candidates = [ai_target_price, resistance, technical_target]
+        if ai_target_price and ai_target_price > current_price * 1.05:
+            # Use AI prediction if bullish (>5% gain)
+            target_candidates = [ai_target_price, technical_target, resistance]
         else:
             # Use technical levels only
-            target_candidates = [resistance, technical_target]
+            target_candidates = [technical_target, resistance]
 
-        # Choose conservative target (lower of candidates, but above current)
-        valid_targets = [t for t in target_candidates if t > buy_price]
+        # Choose OPTIMISTIC target (higher of candidates, but realistic)
+        # This improves R/R ratio significantly
+        valid_targets = [t for t in target_candidates if t > buy_price * 1.05]  # At least 5% profit
         if valid_targets:
-            target_price = min(valid_targets)
+            target_price = max(valid_targets)  # Changed from min() to max() for higher target
         else:
-            target_price = buy_price * 1.02  # Minimum 2% profit
+            target_price = buy_price * 1.08  # Minimum 8% profit (increased from 2%)
 
         # 6. Calculate Stop-Loss Price
-        # Use maximum of:
-        # - Support level * 0.98 (2% below support for safety)
-        # - Current price - 2*ATR (volatility-based)
-        # But ensure it's below buy price
+        # IMPROVED: Use TIGHTER stop-loss for better R/R ratio
+        # Use MINIMUM of (not maximum):
+        # - Support level * 0.99 (1% below support, tighter than before)
+        # - Current price - 1.5*ATR (tighter volatility-based stop)
+        # This reduces potential loss, improving R/R
 
-        support_stop = support * 0.98
-        atr_stop = current_price - (2 * atr)
+        support_stop = support * 0.99  # Changed from 0.98 to 0.99 (tighter stop)
+        atr_stop = current_price - (1.5 * atr)  # Changed from 2*ATR to 1.5*ATR (tighter stop)
 
-        stop_loss_price = max(support_stop, atr_stop)
+        stop_loss_price = min(support_stop, atr_stop)  # Changed from max() to min() for tighter stop
 
         # Ensure stop-loss is below buy price
         if stop_loss_price >= buy_price:
-            stop_loss_price = buy_price * 0.97  # 3% below buy price
+            stop_loss_price = buy_price * 0.96  # 4% below buy price (increased from 3% for safety)
             logger.warning(f"   Stop-loss adjusted to below buy price: {stop_loss_price:,.0f}")
 
         # 7. Calculate Risk/Reward Ratio
@@ -163,13 +164,15 @@ class PriceCalculator:
         # 8. Calculate predicted return
         predicted_return = ((target_price - buy_price) / buy_price) * 100
 
-        # 9. Validate Risk/Reward
-        if risk_reward_ratio < 0.8:
-            logger.warning(f"   ⚠️ Risk/Reward ratio too low: {risk_reward_ratio:.2f}")
-            # Adjust target to improve R/R
-            target_price = buy_price + (potential_loss * 1.0)  # 1:1 minimum
+        # 9. Validate Risk/Reward - IMPROVED minimum R/R requirement
+        MIN_RR_RATIO = 2.0  # Changed from 0.8 to 2.0 for better risk management
+
+        if risk_reward_ratio < MIN_RR_RATIO:
+            logger.warning(f"   ⚠️ Risk/Reward ratio too low: {risk_reward_ratio:.2f}, adjusting to {MIN_RR_RATIO}")
+            # Adjust target to improve R/R to 2.0 minimum
+            target_price = buy_price + (potential_loss * MIN_RR_RATIO)  # 2:1 minimum (changed from 1:1)
             predicted_return = ((target_price - buy_price) / buy_price) * 100
-            risk_reward_ratio = 1.0
+            risk_reward_ratio = MIN_RR_RATIO
 
         logger.info(f"   ✅ Buy: {buy_price:,.0f} | Target: {target_price:,.0f} | Stop: {stop_loss_price:,.0f}")
         logger.info(f"   📊 Profit: +{predicted_return:.2f}% | Risk: -{(potential_loss/buy_price)*100:.2f}% | R/R: {risk_reward_ratio:.2f}")

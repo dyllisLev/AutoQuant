@@ -422,12 +422,32 @@ class AnalysisOrchestrator:
 
         phase_start = time.time()
 
+        # Get korean names from AI candidates in DB (Phase 3 saved them)
+        from sqlalchemy import text
+        ai_candidates_data = {}
+        if ai_candidates:
+            # Get AI screening result ID for this analysis run
+            ai_result = session.query(AIScreeningResult).filter(
+                AIScreeningResult.analysis_run_id == analysis_run.id
+            ).first()
+
+            if ai_result:
+                placeholders = ','.join([f"'{code}'" for code in ai_candidates])
+                query = text(f"""
+                    SELECT stock_code, company_name
+                    FROM ai_candidates
+                    WHERE ai_screening_id = :screening_id
+                    AND stock_code IN ({placeholders})
+                """)
+                result = session.execute(query, {'screening_id': ai_result.id})
+                ai_candidates_data = {row[0]: row[1] for row in result}
+
         # Run technical screening
-        # First convert stock codes to DataFrame format expected by screen()
+        # Convert stock codes to DataFrame with korean names
         import pandas as pd
         candidates_df = pd.DataFrame({
             'stock_code': ai_candidates,
-            'company_name': [f"Company {code}" for code in ai_candidates]  # Placeholder names
+            'company_name': [ai_candidates_data.get(code, f"종목_{code}") for code in ai_candidates]
         })
 
         selected_stocks = self.technical_screener.screen(
