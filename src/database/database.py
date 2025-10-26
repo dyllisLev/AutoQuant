@@ -13,7 +13,11 @@ import pandas as pd
 from loguru import logger
 from dotenv import load_dotenv
 
-from .models import Base, Stock, StockPrice, MarketData, Prediction, Trade, Portfolio, BacktestResult, TradingSignal, MarketSnapshot
+from .models import (
+    Base, Stock, StockPrice, MarketData, Prediction, Trade, Portfolio, BacktestResult,
+    AnalysisRun, MarketSnapshot, AIScreeningResult, AICandidate,
+    TechnicalScreeningResult, TechnicalSelection, TradingSignal
+)
 
 # .env 파일 로드
 load_dotenv()
@@ -406,10 +410,69 @@ class Database:
     # ==================== KIS Daily OHLCV Data ====================
     # PostgreSQL의 daily_ohlcv 테이블에서 직접 데이터 조회
 
+    def get_daily_ohlcv_batch_from_kis(self, start_date: datetime = None,
+                                       end_date: datetime = None) -> pd.DataFrame:
+        """
+        KIS 시스템의 daily_ohlcv 테이블에서 전체 종목의 일봉 데이터를 한 번에 조회 (배치)
+
+        Args:
+            start_date: 시작 날짜
+            end_date: 종료 날짜
+
+        Returns:
+            pandas.DataFrame: 전체 종목 OHLCV 데이터 (symbol_code 컬럼 포함)
+        """
+        from sqlalchemy import text
+
+        session = self.get_session()
+        try:
+            query = """
+                SELECT
+                    symbol_code,
+                    trade_date,
+                    open_price as open,
+                    high_price as high,
+                    low_price as low,
+                    close_price as close,
+                    volume,
+                    trade_amount as amount
+                FROM daily_ohlcv
+                WHERE 1=1
+            """
+
+            params = {}
+
+            if start_date:
+                query += " AND trade_date >= :start_date"
+                params['start_date'] = start_date
+
+            if end_date:
+                query += " AND trade_date <= :end_date"
+                params['end_date'] = end_date
+
+            query += " ORDER BY symbol_code, trade_date ASC"
+
+            df = pd.read_sql_query(text(query), session.bind, params=params)
+
+            if not df.empty and 'trade_date' in df.columns:
+                df['trade_date'] = pd.to_datetime(df['trade_date'])
+
+            record_count = len(df)
+            unique_stocks = df['symbol_code'].nunique() if not df.empty else 0
+            logger.info(f"KIS daily_ohlcv 배치 조회 성공: {unique_stocks}개 종목, {record_count}건")
+
+            return df
+
+        except Exception as e:
+            logger.error(f"KIS daily_ohlcv 배치 조회 실패: {e}")
+            return pd.DataFrame()
+        finally:
+            session.close()
+
     def get_daily_ohlcv_from_kis(self, symbol_code: str, start_date: datetime = None,
                                  end_date: datetime = None) -> pd.DataFrame:
         """
-        KIS 시스템의 daily_ohlcv 테이블에서 일봉 데이터 조회
+        KIS 시스템의 daily_ohlcv 테이블에서 일봉 데이터 조회 (개별 종목)
 
         Args:
             symbol_code: 종목코드 (예: '005930' - 삼성전자)

@@ -205,6 +205,14 @@ def main():
     if not args.json_output:
         print_banner()
 
+    # Check database connection FIRST (needed for auto-date detection)
+    try:
+        db = Database()
+        logger.info(f"Database connected: {db._get_db_url_from_env()}")
+    except Exception as e:
+        logger.error(f"Failed to connect to database: {str(e)}")
+        sys.exit(1)
+
     # Parse dates
     analysis_date = None
     if args.date:
@@ -213,6 +221,21 @@ def main():
         except ValueError:
             logger.error(f"Invalid date format: {args.date}. Use YYYY-MM-DD")
             sys.exit(1)
+    else:
+        # AUTO-DETECT: Use latest available trading date from DB
+        from sqlalchemy import text
+        session = db.get_session()
+        try:
+            result = session.execute(text('SELECT MAX(trade_date) FROM daily_ohlcv'))
+            max_date = result.scalar()
+            if max_date:
+                analysis_date = max_date
+                logger.info(f"📅 Auto-detected latest trading date from DB: {analysis_date}")
+            else:
+                logger.error("No trading data found in database!")
+                sys.exit(1)
+        finally:
+            session.close()
 
     target_trade_date = None
     if args.target_date:
@@ -224,18 +247,10 @@ def main():
 
     # Log execution info
     logger.info(f"Execution mode: {'DRY RUN' if args.dry_run else 'PRODUCTION'}")
-    logger.info(f"Analysis date: {analysis_date or 'TODAY'}")
+    logger.info(f"Analysis date: {analysis_date}")
     logger.info(f"Target trade date: {target_trade_date or 'AUTO (next business day)'}")
     if log_file:
         logger.info(f"Log file: {log_file}")
-
-    # Check database connection
-    try:
-        db = Database()
-        logger.info(f"Database connected: {db._get_db_url_from_env()}")
-    except Exception as e:
-        logger.error(f"Failed to connect to database: {str(e)}")
-        sys.exit(1)
 
     # Run analysis
     try:

@@ -239,56 +239,172 @@ class AnalysisOrchestrator:
         analysis_date: date,
         market_data: Dict
     ) -> Dict:
-        """Phase 3: AI Screening with persistence"""
+        """Phase 3: AI Screening with persistence - OPTIMIZED with sector info and korean names"""
 
         phase_start = time.time()
 
-        # Get available stocks
-        available_stocks = self.db.get_available_symbols_from_kis()
-        logger.info(f"   Total stocks: {len(available_stocks)}")
+        # Get available stocks from KIS DB
+        available_stock_codes = self.db.get_available_symbols_from_kis()
+        logger.info(f"   Total stocks from KIS DB: {len(available_stock_codes)}")
 
-        # Run AI screening (mock for now - will use real AI in production)
-        # For now, select top 40 by market cap
-        candidates = available_stocks[:40]  # Simplified for demo
+        # Prepare stock data DataFrame for AIScreener
+        import pandas as pd
+        import os
+        from src.utils import SectorMapper
+        from sqlalchemy import text
 
-        # Create AI screening result
+        # Initialize sector mapper
+        sector_mapper = SectorMapper()
+
+        # Build comprehensive stock data with OPTIMIZED query (2 days only, no RSI)
+        stocks_data = []
+
+        # Get stock info (korean_name, sector) in batch
+        logger.info(f"   📋 Loading stock info (korean_name, sector) from stock_info tables...")
+
+        # Query KOSPI stock info
+        kospi_info_query = text("""
+            SELECT short_code, korean_name, index_sector_large_code, index_sector_medium_code
+            FROM kospi_stock_info
+        """)
+        kospi_info_result = session.execute(kospi_info_query)
+        kospi_info_dict = {
+            row[0]: {
+                'korean_name': row[1],
+                'sector_large': row[2],
+                'sector_medium': row[3]
+            }
+            for row in kospi_info_result
+        }
+
+        # Query KOSDAQ stock info
+        kosdaq_info_query = text("""
+            SELECT short_code, korean_name, index_sector_large_code, index_sector_medium_code
+            FROM kosdaq_stock_info
+        """)
+        kosdaq_info_result = session.execute(kosdaq_info_query)
+        kosdaq_info_dict = {
+            row[0]: {
+                'korean_name': row[1],
+                'sector_large': row[2],
+                'sector_medium': row[3]
+            }
+            for row in kosdaq_info_result
+        }
+
+        # Merge KOSPI and KOSDAQ info
+        all_stock_info = {**kospi_info_dict, **kosdaq_info_dict}
+        logger.info(f"   ✅ Loaded stock info for {len(all_stock_info)} stocks")
+
+        # FULLY OPTIMIZED: Batch query for ONLY latest day (2760개 쿼리 → 1개 쿼리)
+        logger.info(f"   📊 Batch querying latest day OHLCV data for ALL stocks...")
+
+        # ONE database query for all stocks on analysis_date
+        all_ohlcv_df = self.db.get_daily_ohlcv_batch_from_kis(
+            start_date=analysis_date,
+            end_date=analysis_date
+        )
+
+        if all_ohlcv_df.empty:
+            logger.error("   ❌ No OHLCV data retrieved from batch query!")
+            return {'ai_result_id': None, 'candidates': []}
+
+        logger.info(f"   ✅ Retrieved {len(all_ohlcv_df)} records from batch query")
+
+        # Process each stock from batch results
+        for _, row in all_ohlcv_df.iterrows():
+            try:
+                stock_code = row['symbol_code']
+
+                # Get korean_name and sector from stock_info
+                stock_info = all_stock_info.get(stock_code, {})
+                korean_name = stock_info.get('korean_name', f'종목_{stock_code}')
+                sector_large = stock_info.get('sector_large')
+                sector_medium = stock_info.get('sector_medium')
+                sector_display = sector_mapper.format_sector_display(sector_large, sector_medium)
+
+                # Build stock record (NO RSI - that's for Phase 4 technical screening)
+                # AI doesn't need change_pct - it analyzes absolute values
+                stocks_data.append({
+                    'code': stock_code,
+                    'name': korean_name,
+                    'sector': sector_display,
+                    'close': float(row['close']),
+                    'market_cap': float(row['close'] * row['volume']),  # Approximate
+                    'volume': int(row['volume'])
+                })
+
+            except Exception as e:
+                logger.debug(f"Skipping {row.get('symbol_code', 'unknown')}: {e}")
+                continue
+
+        all_stocks_df = pd.DataFrame(stocks_data)
+        logger.info(f"   ✅ Prepared stock data: {len(all_stocks_df)} stocks with korean_name + sector (배치 조회)")
+
+        # Initialize AIScreener with provider from environment
+        ai_provider = os.getenv("AI_SCREENING_PROVIDER", "openai")
+        ai_screener = AIScreener(provider=ai_provider)
+
+        # Call real AI screening
+        logger.info(f"   🤖 Calling AI screening API ({ai_provider})...")
+        candidates_list, metadata = ai_screener.screen_stocks(
+            market_snapshot=market_data,
+            all_stocks=all_stocks_df,
+            sentiment_confidence=market_data.get('sentiment_confidence', 0.5)
+        )
+
+        logger.info(f"   ✅ AI returned {len(candidates_list)} candidates")
+
+        # Create AI screening result with real data
         ai_result = AIScreeningResult(
             analysis_run_id=analysis_run.id,
             screening_date=analysis_date,
-            ai_provider='mock',  # Will be 'openai', 'anthropic', etc. in production
-            ai_model='demo',
-            total_input_stocks=len(available_stocks),
-            selected_count=len(candidates),
-            execution_time_seconds=time.time() - phase_start,
-            api_cost_usd=0.0,  # Mock
-            prompt_text='Demo mode - would contain full prompt',
-            response_text='Demo mode - would contain AI response',
-            response_summary=f'Selected {len(candidates)} stocks based on market conditions'
+            ai_provider=metadata.get('provider', 'unknown'),
+            ai_model=metadata.get('model', 'unknown'),
+            total_input_stocks=len(all_stocks_df),
+            selected_count=len(candidates_list),
+            execution_time_seconds=metadata.get('screening_duration_sec', time.time() - phase_start),
+            api_cost_usd=metadata.get('api_cost', 0.0),
+            prompt_text='Full prompt saved in debug_actual_prompt.txt',  # Saved by AIScreener
+            response_text=f"AI selected {len(candidates_list)} stocks based on market conditions",
+            response_summary=f"{metadata.get('sentiment', 'UNKNOWN')} market - selected {len(candidates_list)} candidates"
         )
         session.add(ai_result)
         session.flush()  # Get ID
 
         logger.info(f"   💾 Saved AI screening result (ID: {ai_result.id})")
 
-        # Save individual candidates
+        # Save individual candidates from AI response
         candidate_records = []
-        for rank, stock_code in enumerate(candidates, 1):
+        for candidate_dict in candidates_list:
+            stock_code = candidate_dict.get('code', '')
+            confidence = candidate_dict.get('confidence', 50)
+            reason = candidate_dict.get('reason', 'AI selected')
+
+            # Get stock details from all_stocks_df
+            stock_row = all_stocks_df[all_stocks_df['code'] == stock_code]
+            if stock_row.empty:
+                logger.warning(f"   Candidate {stock_code} not in stock data, skipping")
+                continue
+
+            stock_info = stock_row.iloc[0]
+
             candidate = AICandidate(
                 ai_screening_id=ai_result.id,
                 stock_code=stock_code,
-                company_name=f"Company {stock_code}",  # Would get real name
-                ai_score=90.0 - (rank * 1.0),  # Mock score
-                ai_reasoning=f"Selected based on rank {rank}",
-                rank_in_batch=rank,
-                mentioned_factors=['demo_factor'],
-                current_price=1000.0,  # Would get real price
-                sector='Technology'
+                company_name=stock_info.get('name', f"Stock_{stock_code}"),
+                ai_score=float(confidence),
+                ai_reasoning=reason,
+                rank_in_batch=len(candidate_records) + 1,
+                mentioned_factors=candidate_dict.get('key_indicators', []),
+                current_price=float(stock_info['close']),
+                sector=stock_info.get('sector', 'Unknown')
             )
             session.add(candidate)
             candidate_records.append(stock_code)
 
         session.commit()
-        logger.info(f"   💾 Saved {len(candidate_records)} AI candidates")
+        logger.info(f"   💾 Saved {len(candidate_records)} AI candidates to database")
 
         return {
             'ai_result_id': ai_result.id,
